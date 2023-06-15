@@ -1,7 +1,7 @@
 # Given a matrix of xy locations and correlation parameters rho,sd
 # build the covariance matrix and return the cholesky and inverse
 # for use in drawing samples and making predictions.
-GP_fit = function(xy,rho,sd)
+GP_fit = function(xy,rho)
 {
   n = nrow(xy)
   K = cov_mat(rho,xy) + diag(sqrt(.Machine$double.eps),n)
@@ -12,13 +12,15 @@ GP_fit = function(xy,rho,sd)
 
 # Given the cholesky of the covariance matrix draw a random sample
 # from the mean zero with stderr 'sd'
-GP_sample = function(gp_fit,sd){
+GP_sample = function(gp_fit,sd)
+{
   sd^2*drop(rnorm(nrow(gp_fit$cholK)) %*% gp_fit$cholK)
 }
 
 # With covariance K defined on points xy predict from the GP
 # at xy.pred using training points y.train
-GP_predict = function(gp_fit,xy,rho,xy.pred,y.train){
+GP_predict = function(gp_fit,xy,rho,xy.pred,y.train)
+{
   # cross-covariance of training locations and prediction locations
   K.xy.pred = cov_mat(rho,xy.pred,xy)
   # covariance matrix of prediction locations
@@ -57,7 +59,7 @@ gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1,
   Y = seq(0,dimY,length.out=grid.len)
   XY = expand.grid(X,Y)
   
-  gp_fit = GP_fit(XY,rho,heterogeneity.scale)
+  gp_fit = GP_fit(XY,rho)
   n_plus = rpois(reps, lambda * dimX * dimY)
   
   realization = function(n_plus,gp_fit,XY,dimX,dimY,rho,heterogeneity.scale,mu_r,sigma_r,mu_h,sigma_h,
@@ -112,51 +114,28 @@ gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1,
       dat[[i]] = realization(n_plus[i],gp_fit,XY,dimX,dimY,rho,heterogeneity.scale,mu_r,sigma_r,mu_h,sigma_h,sp.cov.locs,sp.cov.vals,sp.cov.scale)
     }
   }
-  
-  # dat = foreach::foreach() %dopar% realization()
-  # dat = vector(mode='list',length=reps)
-  # for(i in 1:reps){
-  #   
-  #   if(n_plus[i]>0){
-  # 
-  #     dat[[i]]=data.frame(X=numeric(),Y=numeric())
-  #     
-  #     gp_mean = GP_sample(gp_fit,heterogeneity.scale)
-  #     
-  #     n_cand = 50
-  #     while(nrow(dat[[i]])<n_plus[i]){
-  #       # candidate points within half meter from boundary because sp.cov.locs are at .5 and dim-.5
-  #       xy_cand = matrix(c(runif(n_cand,0.5,dimX-.5),runif(n_cand,0.5,dimY-.5)),nrow=n_cand)
-  #       pred = GP_predict(gp_fit,XY,rho,xy_cand,gp_mean)
-  #       if(!is.null(sp.cov.vals)){
-  #         XB = matrix(0,nrow=length(pred),ncol=1)
-  #         for(k in 1:length(sp.cov.vals)){
-  #           XB = XB + sp.cov.scale[k]*pracma::interp2(x=sp.cov.locs[[k]]$x,y=sp.cov.locs[[k]]$y,Z=sp.cov.vals[[k]],xp=xy_cand[,1],yp=xy_cand[,2])
-  #         }
-  #         accept = runif(n_cand) < plogis(pred + as.numeric(XB),0,logis.scale)
-  #       } else{
-  #         accept = runif(n_cand) < plogis(pred,0,logis.scale)
-  #         
-  #       }
-  #       dat[[i]] = rbind(dat[[i]],data.frame(X=xy_cand[accept,1],Y=xy_cand[accept,2]))
-  #     }
-  #     # randomly sample back down to n_plus[i] shrubs
-  #     dat[[i]] = dat[[i]][sample(seq_len(nrow(dat[[i]])),n_plus[i]),]
-  #     # give random radius and height to each shrub
-  #     dat[[i]]$r = truncdist::rtrunc(n_plus[i],'norm',a=0,b=Inf,mu_r,sigma_r)
-  #     if(!is.null(mu_h)){
-  #       dat[[i]]$h = truncdist::rtrunc(n_plus[i],'norm',a=0,b=Inf,mu_h,sigma_h)
-  #     }
-  # 
-  #   } else{
-  #     dat[[i]]=data.frame(X=numeric(),Y=numeric(),r=numeric())
-  #     if(!is.null(mu_h))
-  #       dat[[i]]$h = numeric()
-  #   }
-  # }
 
-  if(reps==1)
-    dat = dat[[1]]
-  
-  return(list(dat=dat,dimX=dimX,dimY=dimY,reps=reps))
+  # return parameters as they may be needed to calculate prior
+  return(list(dat=dat,dimX=dimX,dimY=dimY,reps=reps,
+              theta=theta,
+              heterogeneity.scale = heterogeneity.scale, 
+              sp.cov.locs = sp.cov.locs, sp.cov.vals = sp.cov.vals, sp.cov.scale = sp.cov.scale, 
+              GP.init.size=GP.init.size, seed = seed, logis.scale=logis.scale, parallel=parallel))
+}
+
+# csv.filenames: vector of filenames for repeat observations
+load_data = function(csv.filenames, dimX, dimY, heterogeneity.scale = 1, 
+                    sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL, 
+                    GP.init.size=1000, logis.scale=.217622)
+{
+  reps = length(csv.filenames)
+  dat = list(reps)
+  for(i in 1:reps){
+    # cols: X,Y,r,h
+    dat[[i]] = data.frame(read.csv(csv.filenames[i]))
+  }
+  return(list(dat=dat,dimX=dimX,dimY=dimY,reps=reps,
+              heterogeneity.scale = heterogeneity.scale, 
+              sp.cov.locs = sp.cov.locs, sp.cov.vals = sp.cov.vals, sp.cov.scale = sp.cov.scale, 
+              GP.init.size=GP.init.size, logis.scale=logis.scale))
 }

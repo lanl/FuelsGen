@@ -53,10 +53,10 @@ gen_fuels = function(dimX, dimY,
 #' @export
 #'
 plot_fuels = function(data,filename=NULL){
-    if(data$reps>1){
+    if(data$reps>0){
         plot.dim = min(5,ceiling(sqrt(data$reps)))
         plot.list = vector(mode='list',length=data$reps)
-        hmin = Inf; hmax = 0
+        hmin = 0; hmax = Inf
 
         for(i in 1:data$reps){
             if(!is.null(data$dat[[i]]$h)){
@@ -72,6 +72,7 @@ plot_fuels = function(data,filename=NULL){
                     ggplot2::theme(plot.margin=ggplot2::margin(t = 0, r = 0, b = 0, l = 0, unit = "pt"), text = ggplot2::element_text(size = 5)) + 
                     ggplot2::coord_fixed(xlim = c(-1, data$dimX+1), ylim = c(-1, data$dimY+1))
             } else{
+                hmax = 0
                 plot.list[[i]] = ggplot2::ggplot() + 
                     ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r), fill='darkgreen', data=data$dat[[i]]) + 
                     ggplot2::labs(x='X (m)',y='Y (m)') + 
@@ -99,13 +100,13 @@ plot_fuels = function(data,filename=NULL){
         
         if(!is.null(data$dat$h)){
             myplot = ggplot2::ggplot() +
-                     ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r, fill = h), data=data$dat) + 
+                     ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r, fill = h), data=data$dat[[1]]) + 
                      ggplot2::labs(x='X (m)',y='Y (m)',fill='height (m)') + 
                      ggplot2::theme(aspect.ratio = data$dimY/data$dimX) +
                      ggplot2::coord_fixed(xlim = c(-1, data$dimX+1), ylim = c(-1, data$dimY+1))
         } else{
             myplot = ggplot2::ggplot() + 
-                     ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r), fill='darkgreen', data=data$dat) + 
+                     ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r), fill='darkgreen', data=data$dat[[1]]) + 
                      ggplot2::labs(x='X (m)',y='Y (m)') + 
                      ggplot2::theme(aspect.ratio = data$dimY/data$dimX) +
                      ggplot2::coord_fixed(xlim = c(-1, data$dimX+1), ylim = c(-1, data$dimY+1))
@@ -135,7 +136,7 @@ plot_fuels = function(data,filename=NULL){
 #' @param data: raster object
 #' @export
 #'
-modify_raster = function(data){
+modify_raster = function(data,type='regular'){
   dimX = data@extent@xmax-data@extent@xmin
   dimY = data@extent@ymax-data@extent@ymin
   raster::extent(data) = c(0,dimX,0,dimY)
@@ -145,11 +146,14 @@ modify_raster = function(data){
   locs$x = unique(coords[,1])
   locs$y = rev(unique(coords[,2])) # y's must be in increasing order for pracma::interp2
   vals = raster::values(data,format='matrix')
-  vals[vals<0] = 0
-  vals = (vals - min(vals)) / (max(vals) - min(vals))
-  vals = 2*vals - 1 # scale to [-1,1] so that low canopy reduces probability of shrub
+  if(type=='regular'){
+    vals[vals<0] = 0
+    vals = (vals - min(vals)) / (max(vals) - min(vals))
+    vals = 2*vals - 1 # scale to [-1,1] so that low canopy reduces probability of shrub
+  }
   raster::values(data) = vals
   # flip y dim to match locs$y
   vals = vals[nrow(vals):1,]
+  
   return(list(raster=data,dimX=dimX,dimY=dimY,locs=list(locs),vals=list(vals)))
 }

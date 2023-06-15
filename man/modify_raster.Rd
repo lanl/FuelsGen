@@ -4,7 +4,7 @@
 \alias{modify_raster}
 \title{Fix raster}
 \usage{
-modify_raster(data)
+modify_raster(data, type = "regular")
 }
 \arguments{
 \item{data:}{raster object}

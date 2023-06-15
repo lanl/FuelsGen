@@ -8,20 +8,20 @@ gen_fuels(
   dimX,
   dimY,
   density,
-  heterogeneity,
   radius,
   sd_radius,
   height = NULL,
   sd_height = 0,
-  GP.sd = 1,
-  X.sp.locs = NULL,
-  X.sp.vals = NULL,
-  B = NULL,
+  heterogeneity,
+  heterogeneity.scale = 1,
+  sp.cov.locs = NULL,
+  sp.cov.vals = NULL,
+  sp.cov.scale = NULL,
   reps = 1,
+  GP.init.size = 1000,
   seed = NULL,
-  subsample = T,
-  subsample.size = NULL,
-  batch.size = NULL,
+  logis.scale = 0.217622,
+  parallel = F,
   verbose = T
 )
 }
@@ -32,8 +32,6 @@ gen_fuels(
 
 \item{density}{(0,Inf): The mean number of fuels items per unit area (square meter)}
 
-\item{heterogeneity}{(0,Inf): How heterogeneous the fuel maps will be. Larger values result in more heterogeneity.}
-
 \item{radius}{(0,Inf): The Average radius of a circular fuel element}
 
 \item{sd_radius}{(0,Inf): The standard deviation of fuel element radii}
@@ -42,17 +40,13 @@ gen_fuels(
 
 \item{sd_height}{(0,Inf): The standard deviation of fuel element heights. Default is 0 indicating no variance in heights.}
 
+\item{heterogeneity}{(0,Inf): How heterogeneous the fuel maps will be. Larger values result in more heterogeneity.}
+
+\item{heterogeneity.scale}{(0,Inf): How big of an effect should the heterogeneity have? Scaling factor.}
+
 \item{reps}{(integer): The number of fuel layouts to generate}
 
 \item{seed}{(integer): Optional random seed for reproducibility}
-
-\item{subsample}{(logical): Use subsampling to increase Gaussian Process scalability for high density layouts}
-
-\item{subsample.size}{(integer): Size of initial GP subsample used to predict at remaining locations}
-
-\item{batch.size}{(integer): Batch size for GP predictions}
-
-\item{verbose}{(logical): Print status information}
 }
 \description{
 Generate fuel layouts on a rectangular domain using a handful of parameters to a generative model.
