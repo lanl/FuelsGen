@@ -84,7 +84,7 @@ ui <- fluidPage(
            actionButton("loadchm", "Load CHM")
     ),
     column(2,
-           textInput("chmfile",label=NULL,value ="../examples/LA_CHM.tif", placeholder="path/to/canopy_height_model.tif")
+           textInput("chmfile",label=NULL,value = here::here("examples/CHM/LA_CHM.tif"), placeholder="path/to/canopy_height_model.tif")
     ),
     column(1,
            actionButton("rmchm", "Remove CHM")
