@@ -49,14 +49,13 @@ gen_fuels = function(dimX, dimY,
 #'
 #' @description Plot fuel layouts on a square tiled figure
 #' @param data: fuels data object returned from gen_fuels
-#' @param filename (string): file path for pdf output
 #' @export
 #'
-plot_fuels = function(data,filename=NULL){
+plot_fuels = function(data){
     if(data$reps>0){
         plot.dim = min(5,ceiling(sqrt(data$reps)))
         plot.list = vector(mode='list',length=data$reps)
-        hmin = 0; hmax = Inf
+        hmin = 0; hmax = 0
 
         for(i in 1:data$reps){
             if(!is.null(data$dat[[i]]$h)){
@@ -80,24 +79,16 @@ plot_fuels = function(data,filename=NULL){
                     ggplot2::coord_fixed(xlim = c(-1, data$dimX+1), ylim = c(-1, data$dimY+1))
             }
         }
-        if(!is.null(filename)){
-          pdf(filename)
-          print(patchwork::wrap_plots(plot.list,ncol=plot.dim,nrow=plot.dim, guides='collect') &
-                  ggplot2::scale_fill_continuous(limits = c(hmin, hmax),breaks = seq(hmin,hmax,length.out=5)))
-          dev.off()
+        
+        if(!is.null(data$dat[[1]]$h)){
+          return(patchwork::wrap_plots(plot.list,ncol=plot.dim,nrow=plot.dim, guides='collect') &
+                   ggplot2::scale_fill_continuous(limits = c(hmin, hmax),breaks = seq(hmin,hmax,length.out=5),
+                                                  labels = function(x) sprintf("%.2f", x)))
         } else{
-          if(!is.null(data$dat[[1]]$h)){
-            return(patchwork::wrap_plots(plot.list,ncol=plot.dim,nrow=plot.dim, guides='collect') &
-                    ggplot2::scale_fill_continuous(limits = c(hmin, hmax),breaks = seq(hmin,hmax,length.out=5)))
-          } else{
-            return(patchwork::wrap_plots(plot.list,ncol=plot.dim,nrow=plot.dim, guides='collect'))
-          }
+          return(patchwork::wrap_plots(plot.list,ncol=plot.dim,nrow=plot.dim, guides='collect'))
         }
     } else{
         # single map
-        if(!is.null(filename))
-          pdf(filename)
-        
         if(!is.null(data$dat$h)){
             myplot = ggplot2::ggplot() +
                      ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r, fill = h), data=data$dat[[1]]) + 
@@ -111,7 +102,6 @@ plot_fuels = function(data,filename=NULL){
                      ggplot2::theme(aspect.ratio = data$dimY/data$dimX) +
                      ggplot2::coord_fixed(xlim = c(-1, data$dimX+1), ylim = c(-1, data$dimY+1))
         }
-        
         # plot code for IF we move to ellipses instead of circles
         #data$dat$angle = runif(n=nrow(data$dat),min=0,max=360)
         #myplot = ggplot2::ggplot() + 
@@ -119,14 +109,7 @@ plot_fuels = function(data,filename=NULL){
         #                                            a = .8*r, b=1.2*r, 
         #                                            angle=angle, fill=h), data=data$dat) + 
         #         ggplot2::labs(x='X (m)',y='Y (m)',fill='height (m)')
-        
-        
-        if(!is.null(filename)){
-          print(myplot)
-          dev.off()
-        } else{
-          return(myplot)
-        }
+        return(myplot)
     }
 }
 
