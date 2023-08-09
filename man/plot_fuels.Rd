@@ -2,15 +2,15 @@
 % Please edit documentation in R/interface.R
 \name{plot_fuels}
 \alias{plot_fuels}
-\title{Generate fuel layouts}
+\title{Plot fuel layouts}
 \usage{
 plot_fuels(data, filename = NULL)
 }
 \arguments{
 \item{filename}{(string): file path for pdf output}
 
-\item{data:}{object returned from gen_fuels}
+\item{data:}{fuels data object returned from gen_fuels}
 }
 \description{
-Generate fuel layouts on a rectangular domain using a handful of parameters to a generative model.
+Plot fuel layouts on a square tiled figure
 }

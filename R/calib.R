@@ -1,4 +1,4 @@
-llh = function(y, theta, dimX, dimY, ldetS, Sinv, mets_info, gen_reps = 1, avg = 'mets', gen_parallel = F, mets_parallel = F)
+llh = function(y, theta, dimX, dimY, ldetS, Sinv, gen_reps = 1, avg = 'mets', gen_parallel = F, mets_parallel = F, median = F)
 {
   sim_fuels = gen_fuels(dimX, dimY,
                  theta[4],
@@ -8,32 +8,37 @@ llh = function(y, theta, dimX, dimY, ldetS, Sinv, mets_info, gen_reps = 1, avg =
                  sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL,
                  reps=gen_reps, GP.init.size = 100, seed=NULL, logis.scale=.217622, verbose=F, parallel = gen_parallel)
 
-  metrics = get_mets(sim_fuels, mets_info, mets_parallel)
+  metrics = get_mets(sim_fuels, y$info, mets_parallel)
   
   if(avg == 'mets'){
     # average over the metrics and compute the likelihood once
-    metrics = colMeans(metrics)
+    metrics = colMeans(metrics$mets)
     llh = 0
-    for(i in 1:nrow(y)){
+    for(i in 1:nrow(y$mets)){
       # loop over replicate observations
-      llh = llh - 0.5 * (ldetS + ((y[i,,drop=F] - metrics) %*% Sinv %*% t(y[i,,drop=F] - metrics)))
+      llh = llh - 0.5 * (ldetS + ((y$mets[i,,drop=F] - metrics) %*% Sinv %*% t(y$mets[i,,drop=F] - metrics)))
     }
   } else if(avg == 'llh'){
+    # product likelihood over observations and generations (double product)
     llh = numeric(gen_reps)
     for(j in 1:length(llh)){
       # loop over generated metrics
       llh[j] = 0
-      for(i in 1:nrow(y)){
+      for(i in 1:nrow(y$mets)){
         # loop over replicate observations
-        llh[j] = llh[j] - 0.5 * (ldetS + ((y[i,,drop=F] - metrics[j,]) %*% Sinv %*% t(y[i,,drop=F] - metrics[j,])))
+        llh[j] = llh[j] - 0.5 * (ldetS + ((y$mets[i,,drop=F] - metrics$mets[j,]) %*% Sinv %*% t(y$mets[i,,drop=F] - metrics$mets[j,])))
       }
     }
   }
-  
-  return(mean(llh))
+  if(median){
+    return(median(llh))
+  } else{
+    return(mean(llh))
+  }
 }
 
-lprior = function(theta,params){
+lprior = function(theta,params)
+{
   if(is.null(params$rho_shape)){
     # flat prior but limited domain
     rho_prior = dunif(theta[1],0,params$rho_max)
@@ -48,16 +53,6 @@ lprior = function(theta,params){
   return(prior)
 }
 
-matsplitter=function(M, r, c)
-{
-  rg = (row(M)-1)%/%r+1
-  cg = (col(M)-1)%/%c+1
-  rci = (rg-1)*max(cg) + cg
-  N = prod(dim(M))/r/c
-  cv = unlist(lapply(1:N, function(x) M[rci==x]))
-  dim(cv)=c(r,c,N)
-  cv
-}
 moran_geary = function(afs, rq="rook", moran=T, geary=T)
 {
   nm = length(afs)
@@ -247,34 +242,56 @@ transect = function(t_locs,dims,dat,dimX,dimY)
               breaks = break_lengths))
 }
 
-get_mets = function(fuels, info, parallel = F)
+#' @title Compute metrics for fuels
+#'
+#' @description Compute metrics for each fuel realization in fuels object
+#' @param fuels fuel object outputs from gen_fuels()
+#' @param info metrics info from get_mets_info(), if NULL, default metrics are used
+#' @param parallel compute metrics in parallel
+#' @param make.cluster make parallel cluster in function
+#' @export
+#'
+get_mets = function(fuels, info=NULL, parallel = F, make.cluster = F)
 {
+  if(is.null(info)){
+    info = get_mets_info()
+  }
   if(fuels$reps>1 & parallel){
-    metrics = mets_parallel(fuels, info)
+    metrics = mets_parallel(fuels, info, make.cluster)
   } else{
-    if(fuels$reps>1){
-      metrics = c()
-      for(i in 1:fuels$reps){
-        metrics = rbind(metrics,mets(fuels$dat[[i]], info, fuels$dimX, fuels$dimY))
-      }
-    } else{
-      metrics = mets(fuels$dat, info, fuels$dimX, fuels$dimY)
+    metrics = c()
+    for(i in 1:fuels$reps){
+      metrics = rbind(metrics,mets(fuels$dat[[i]], info, fuels$dimX, fuels$dimY))
     }
   }
-  return(metrics)
+  return(list(mets=metrics,info=info))
 }
 
-mets_parallel = function(fuels,info)
+mets_parallel = function(fuels,info,make.cluster)
 {
-  #cl = parallel::makeCluster(min(fuels$reps,parallel::detectCores()))
-  #doParallel::registerDoParallel(cl)
+  if(make.cluster){
+    cl = parallel::makeCluster(min(fuels$reps,parallel::detectCores()))
+    doParallel::registerDoParallel(cl)
+  }
   metrics = foreach::foreach(i=1:fuels$reps,.combine = 'rbind') %dopar% mets(fuels$dat[[i]],info,fuels$dimX,fuels$dimY)
-  #parallel::stopCluster(cl)
+  if(make.cluster)
+    parallel::stopCluster(cl)
   return(metrics)
 }
 
 mets = function(dat, info, dimX, dimY)
 {
+  matsplitter=function(M, r, c)
+  {
+    rg = (row(M)-1)%/%r+1
+    cg = (col(M)-1)%/%c+1
+    rci = (rg-1)*max(cg) + cg
+    N = prod(dim(M))/r/c
+    cv = unlist(lapply(1:N, function(x) M[rci==x]))
+    dim(cv)=c(r,c,N)
+    cv
+  }
+  
   metrics = c()
   n = nrow(dat)
   if (n == 0){
@@ -473,260 +490,50 @@ mets = function(dat, info, dimX, dimY)
     metrics = c(metrics,nseg,ifelse(nseg>0,mean(segments),0),ifelse(nseg>1,var(segments),0),
                      nbreak,ifelse(nbreak>0,mean(breaks),0),ifelse(nbreak>1,var(breaks),0))
   }
-  # include emperical estimates of parameters as metrics
+  # include empirical estimates of parameters as metrics
   metrics = c(metrics,2*n/dimX/dimY,mean(dat$r),sd(dat$r))
-  # returns = list()
-  # returns$mets = c()
-  # returns$time = c()
-  # returns$names = c()
-  # if(info$ncc){
-  #   returns$time = c(returns$time,ncc.time)
-  #   returns$mets = c(returns$mets,ncc.val)
-  #   returns$names = c(returns$names,'ncc')
-  # }
-  # if(info$nholes){
-  #   returns$time = c(returns$time,nholes.time)
-  #   returns$mets = c(returns$mets,nholes.val)
-  #   returns$names = c(returns$names,'nholes')
-  # }
-  # if(info$grid.area){
-  #   returns$time = c(returns$time,af.time)
-  #   returns$mets = c(returns$mets, total_area, full_cells, empty_cells, af_var * 100)
-  #   returns$names = c(returns$names,'total_area','full_cells','empty_cells','af_var')
-  # }
-  # if(info$moran | info$geary){
-  #   returns$time = c(returns$time,moran.time)
-  #   if(info$rook){
-  #     returns$mets = c(returns$mets,100*c(r1,r2,r01,r02))
-  #     returns$names = c(returns$names,'r1','r2','r01','r02')
-  #   }
-  #   if(info$queen){
-  #     returns$mets = c(returns$mets,100*c(q1,q2,q01,q02))
-  #     returns$names = c(returns$names,'q1','q2','q01','q02')
-  #   }
-  # }
-  # if(info$perim){
-  #   returns$time = c(returns$time,perim.time)
-  #   returns$mets = c(returns$mets,perimeter)
-  #   returns$names = c(returns$names,'perim')
-  # }
-  # if(info$transect){
-  #   returns$time = c(returns$time,transect.time)
-  #   nseg = length(segments)
-  #   nbreak = length(breaks)
-  #   returns$mets = c(returns$mets,nseg,ifelse(nseg>0,mean(segments),0),ifelse(nseg>1,var(segments),0),
-  #                    nbreak,ifelse(nbreak>0,mean(breaks),0),ifelse(nbreak>1,var(breaks),0))
-  #   returns$names = c(returns$names,'transects')
-  # }
-  # # include emperical estimates of parameters as metrics
-  # returns$mets = c(returns$mets,2*n/dimX/dimY,mean(dat$r),sd(dat$r))
-  # returns$names = c(returns$names,'lambda_est','mu_est','sigma_est')
   return(metrics)
 }
 
-est_cov = function(data.type = 'perfect',
-                   data = NULL,
-                   rho = NULL, mu = 1, sigma = .1, lambda = .5, dimX = 10, dimY = 10,
-                   prior.samples = 100, reps = 100,
-                   ncc = TRUE,
-                   nholes = TRUE,
-                   grid.area = TRUE,
-                   moran = FALSE, geary = TRUE,
-                   rook = FALSE, queen = TRUE,
-                   perim = FALSE,
-                   transect = TRUE, n.trans = 4, dim.trans = NULL, loc.trans = NULL)
+#' @title Setup prior for MCMC
+#'
+#' @description Compute necessary prior information for MCMC sampling
+#' @param fuel observed fuel object, output from gen_fuels()
+#' @param metrics metrics for fuel object, output from get_mets()
+#' @param est_cov_obs estimate covariance using only observations (not recommended for n<10)
+#' @param est_cov_samples number of samples from priors used for augmenting observed metrics, only used if est_cov_obs=F
+#' @param est_cov_reps number of fuel replicates to generate at each sample, only used if est_cov_obs=F
+#' @param est_rho_prior list containing string 'prior' denoting the prior distribution and vector 'params' containing the parameters of the distribution for the lengthscale. Currently only 'unif' and 'gamma' priors are supported.
+#' @param gen_parallel generate the fuels in parallel (can be faster for large domains with many fuel elements, but will be slower for small domains)
+#' @param mets_parallel compute metrics in parallel (almost always faster)
+#' @param make.cluster should a parallel cluster be created within the function?
+#' @param seed random seed for reproducible fuel generation and metrics
+#' @returns List containing necessary prior precomputing for MCMC
+#' @export
+#'
+get_prior_info = function(fuel,metrics,est_cov_obs=T,
+                          est_cov_samples=25,est_cov_reps=25,
+                          est_rho_prior=list(prior='gamma',params=c(1,.33)),
+                          gen_parallel = F, mets_parallel = T, make.cluster = F,
+                          seed = NULL)
 {
-  cl = parallel::makeCluster(min(reps,parallel::detectCores()))
-  doParallel::registerDoParallel(cl)
-
-  # Save information for calculating metrics
-  mets_info = list()
-  mets_info$ncc = ncc
-  mets_info$nholes = nholes
-  mets_info$grid.area = grid.area
-  mets_info$moran = moran; mets_info$geary = geary
-  mets_info$rook = rook; mets_info$queen = queen
-  mets_info$perim = perim
-  mets_info$transect = transect
-  mets_info$n.trans = n.trans
-  mets_info$dim.trans = dim.trans
-  mets_info$loc.trans = loc.trans
-
-  if(data.type == 'perfect'){
-    if(is.null(rho)){
-      stop('Enter rho to generate perfect data.')
-    }
-    theta = c(rho,mu,sigma,lambda)
-    truth_realizations = foreach::foreach(i=1:reps) %dopar%
-                gen_fuels(dimX, dimY,
-                          theta[4],
-                          theta[2], theta[3],
-                          height = NULL, sd_height = 0,
-                          theta[1], heterogeneity.scale = 1,
-                          sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL,
-                          reps=1, GP.init.size = 100, seed=NULL, logis.scale=.217622, verbose=F)
-
-
-    y_obs = colMeans(foreach::foreach(i=1:reps,.combine='rbind') %dopar%
-                       mets(truth_realizations[[i]],mets_info)$mets)
-
-    # estimate parameters and sample from informative priors for covariance
-    mu_est = numeric(reps)
-    sigma_est = numeric(reps)
-    lambda_est = numeric(reps)
-    for(i in 1:reps){
-      mu_est[i] = mean(truth_realizations[[i]]$dat$r)
-      sigma_est[i] = sd(truth_realizations[[i]]$dat$r)
-      lambda_est[i] = 2*nrow(truth_realizations[[i]]$dat)/dimX/dimY
-    }
-
-    mu_est = mean(mu_est)
-    sigma_est = mean(sigma_est)
-    lambda_est = mean(lambda_est)
-
-  } else if(data.type=='sfnf'){
-    sfnf = list()
-    sfnf$dat = read.csv(paste0(data.dir,'data.csv'),header=F)
-    names(sfnf$dat) = c('X','Y','sd')
-    sfnf$dat$r = 2*sfnf$dat$sd; sfnf$dat$sd = NULL
-    sfnf$dat$X = sfnf$dat$X + 15
-    sfnf$dat$Y = sfnf$dat$Y + 15
-    ntree = nrow(sfnf$dat)
-    sfnf$dimX = 30
-    sfnf$dimY = 30
-    y_obs = mets(sfnf,mets_info)$mets
-
-    mu_est = mean(sfnf$dat$r)
-    sigma_est = sd(sfnf$dat$r)
-    lambda_est = 2*ntree/sfnf$dimX/sfnf$dimY
-
-  } else if(data.type == 'single_sim'){
-    dimX = data$dimX
-    dimY = data$dimY
-    ntree = nrow(data$dat)
-    y_obs = mets(data,mets_info)$mets
-    mu_est = mean(data$dat$r)
-    sigma_est = sd(data$dat$r)
-    lambda_est = ntree/dimX/dimY
-    if(!is.null(rho)){
-      rho_est = rho
-    }
-  } else{
-    stop('supported data types are \'perfect\', \'sfnf\', and \'single_sim\'.')
+  if(!est_cov_obs & (gen_parallel | mets_parallel)){
+    cores = min(max(est_cov_samples,est_cov_reps),parallel::detectCores())
+    cl = parallel::makeCluster(cores)
+    doParallel::registerDoParallel(cl)
   }
-
-  mu_prior_samp = truncdist::rtrunc(prior.samples,'norm',a=0,mean=mu_est,sd=.1*mu_est)
-  sigma_prior_samp = truncdist::rtrunc(prior.samples,'norm',a=0,mean=sigma_est,sd=.1*sigma_est)
-  lambda_prior_samp = truncdist::rtrunc(prior.samples,'norm',a=0,mean=lambda_est,sd=.1*lambda_est)
-  
-  rho_max = max(dimX,dimY)/3
-  if(is.null(rho)){
-    # we don't have good information about rho, but we know that with the given kernel
-    # point 3*rho apart are effectively uncorrelated, so we cannot infer larger rho's anyway
-    rho_prior_samp = runif(prior.samples,0,rho_max)
-    rho_est = mean(rho_prior_samp)
-  } else{
-    # given strong prior information about rho
-    rho_prior_samp = truncdist::rtrunc(prior.samples,'norm',a=0,mean=rho_est,sd=.1*rho_est)
-  }
-
-
-  if(data.type=='sfnf'){
-    # gamma parameters s.t. q95 ~~ rho_max
-    #rho_shape = 1
-    #rho_rate = .3
-    #rho_prior = "gamma"
-    rho_prior = "uniform"
-    rho_shape = NULL
-    rho_rate = NULL
-  } else{
-    rho_prior = "uniform"
-    rho_shape = NULL
-    rho_rate = NULL
-  }
-  # set bounds for each parameters
-
-  # the lower bound on lambda is very important. Certain metrics calculations will fail if not enough trees are sampled.
-  # The error we get with small lambda is "Point cloud must have at least 2 points and at least 2 dimensions." I need to find out
-  # which metric calculation is causing this.
-  # We choose to assume that the true lambda such that on average produce half the number of trees as observed are produced
-  # i.e. lambda >= lambda_est/2. And similarly we assume that lambda <= lambda_est*2
-  prior.lb = c(0,       0,   0, lambda_est/2)
-  prior.ub = c(rho_max, 3, Inf, lambda_est*2)
-
-  metrics = matrix(nrow=(prior.samples*reps),ncol=length(y_obs))
-  for(i in 0:(prior.samples-1)){
-    if(i>0 & i%%10==0){cat(i,' ')}
-    j1 = i*reps + 1
-    j2 = j1 + reps - 1
-    theta = c(rho_prior_samp[i+1],mu_prior_samp[i+1],sigma_prior_samp[i+1],lambda_prior_samp[i+1])
-    pp = foreach::foreach(k=1:reps) %dopar% gen_fuels(dimX, dimY,
-                                                      theta[4],
-                                                      theta[2], theta[3],
-                                                      height = NULL, sd_height = 0,
-                                                      theta[1], heterogeneity.scale = 1,
-                                                      sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL,
-                                                      reps=1, GP.init.size = 100, seed=NULL, logis.scale=.217622, verbose=F)
-    metrics[j1:j2,] = foreach::foreach(k=1:reps,.combine='rbind') %dopar%
-      mets(pp[[k]],mets_info)$mets
-  }
-
-  Sigma = cov(metrics)
-  Sinv = solve(Sigma + 1e-8*diag(dim(Sigma)[1]))
-  ldetS = determinant(Sigma)$modulus
-
-  # save everything needed to calculate priors
-  prior_params = list()
-  prior_params$lb = prior.lb; prior_params$ub = prior.ub
-  prior_params$rho_prior = rho_prior
-  prior_params$rho_max = rho_max
-  prior_params$rho_shape = rho_shape
-  prior_params$rho_rate = rho_rate
-  prior_params$mu_prior = "trunc normal"
-  prior_params$mu_mean = 1.5
-  prior_params$mu_sd = .5
-  prior_params$prec_prior = 'gamma'
-  prior_params$prec_shape = 1
-  prior_params$prec_rate = 1e-3
-  prior_params$lambda_prior = 'gamma'
-  prior_params$lambda_shape = 1
-  prior_params$lambda_rate = 1/lambda_est
-  
-  parallel::stopCluster(cl)
-  
-  return(list('y_obs'=y_obs,
-              'prior_params'=prior_params,
-              'mets_info'=mets_info,
-              'rho_est'=rho_est,
-              'mu_est'=mu_est,
-              'sigma_est'=sigma_est,
-              'metrics'=metrics,
-              'Sigma'=Sigma,
-              'Sinv'=Sinv,
-              'ldetS'=ldetS,
-              'dimX'=dimX,
-              'dimY'=dimY))
-}
-
-get_prior_info = function(fuel,metrics){
-  if(fuel$reps==1){
-    fuel$dat = list(fuel$dat)
-  }
+  lambda_est = numeric(fuel$reps)
+  mu_est = numeric(fuel$reps)
+  sigma_est = numeric(fuel$reps)
   for(i in 1:fuel$reps){
-    lambda_est = numeric(fuel$reps)
-    mu_est = numeric(fuel$reps)
-    sigma_est = numeric(fuel$reps)
-    for(i in 1:fuel$reps){
-      lambda_est[i] = nrow(fuel$dat[[i]])/fuel$dimX/fuel$dimY
-      mu_est[i] = mean(fuel$dat[[i]]$r)
-      sigma_est[i] = sd(fuel$dat[[i]]$r)
-    }
+    lambda_est[i] = nrow(fuel$dat[[i]])/fuel$dimX/fuel$dimY
+    mu_est[i] = mean(fuel$dat[[i]]$r)
+    sigma_est[i] = sd(fuel$dat[[i]]$r)
   }
   lambda_est = mean(lambda_est)
   mu_est = mean(mu_est)
   sigma_est = mean(sigma_est)
   rho_max = max(fuel$dimX,fuel$dimY)/3
-  rho_est = rho_max/2
   
   # gamma parameters s.t. q95 ~~ rho_max
   #rho_prior = "gamma"
@@ -742,9 +549,48 @@ get_prior_info = function(fuel,metrics){
   # We choose to assume that the true lambda such that on average produce half the number of trees as observed are produced
   # i.e. lambda >= lambda_est/2. And similarly we assume that lambda <= lambda_est*2
   prior.lb = c(0,       0,   0, lambda_est/2)
-  prior.ub = c(rho_max, 3, Inf, lambda_est*2)
+  prior.ub = c(rho_max, 3, 10*sigma_est, lambda_est*2)
   
-  Sigma = cov(metrics)
+  if(est_cov_obs){
+    # estimate Sigma matrix using observed metrics
+    Sigma = cov(metrics$mets)
+  } else{
+    if(!is.null(seed))
+      set.seed(seed)
+    # use lambda_est, mu_est, sigma_est + prior samples of rho to estimate Sigma
+    lambda_samples = truncdist::rtrunc(est_cov_samples,'norm',a=0,mean=lambda_est,sd=.1*lambda_est)
+    mu_samples = truncdist::rtrunc(est_cov_samples,'norm',a=0,b=3,mean=mu_est,sd=.1*mu_est)
+    sigma_samples = truncdist::rtrunc(est_cov_samples,'norm',a=0,mean=sigma_est,sd=.1*sigma_est)
+    if(est_rho_prior$prior == 'gamma'){
+      rho_samples = truncdist::rtrunc(est_cov_samples,'gamma',a=0,b=rho_max,
+                                      shape=est_rho_prior$params[1],rate=est_rho_prior$params[2])
+    } else if(est_rho_prior$prior == 'unif'){
+      rho_samples = runif(est_cov_samples,est_rho_prior$params[1],est_rho_prior$params[2])
+    } else{
+      stop('enter either gamma or unif as rho prior')
+    }
+    metrics_samples = c()
+    for(i in 1:est_cov_samples){
+      # generate new fuel realizations using sampled parameters and same inputs as observations if available
+      fuel_samp = gen_data(c(lambda_samples[i],rho_samples[i],mu_samples[i],sigma_samples[i]),
+                           fuel$dimX, fuel$dimY, fuel$heterogeneity.scale, 
+                           fuel$sp.cov.locs, fuel$sp.cov.vals, fuel$sp.cov.scale, 
+                           est_cov_reps, fuel$GP.init.size, seed = seed, fuel$logis.scale, gen_parallel)
+      # add mean metrics to matrix
+      metrics_samples = rbind(metrics_samples,colMeans(get_mets(fuel_samp,metrics$info,mets_parallel)$mets))
+    }
+    Sigma = cov(rbind(metrics$mets,metrics_samples))
+  }
+  
+  # set rho_est to prior mean
+  if(est_rho_prior$prior == 'gamma'){
+    rho_est = est_rho_prior$params[1]/est_rho_prior$params[2]
+  } else if(est_rho_prior$prior == 'unif'){
+    rho_est = mean(est_rho_prior$params)
+  }
+  
+  if(make.cluster)
+    parallel::stopCluster(cl)
   Sinv = solve(Sigma + 1e-8*diag(dim(Sigma)[1]))
   ldetS = determinant(Sigma)$modulus
   
@@ -767,11 +613,28 @@ get_prior_info = function(fuel,metrics){
   
   return(list('prior_params'=prior_params,
               'theta_est'=c(rho_est,mu_est,sigma_est,lambda_est),
+              'Sigma'=Sigma,
               'Sinv'=Sinv,
               'ldetS'=ldetS))
 }
 
-get_mets_info = function(ncc=T,nholes=T,grid.area=T,moran=F,geary=T,rook=F,queen=T,perim=F,transect=F,n.trans=0)
+#' @title Metrics info
+#'
+#' @description Get a list of metrics indicators
+#' @param ncc 
+#' @param nholes number of holes in the binary map
+#' @param grid.area 
+#' @param moran Moran's I spatial autocorrelation. Moran=F by default because it generally doesn't add extra information from Geary.
+#' @param geary Geary's C spacial autocorrelation
+#' @param rook rook method for connected components in Moran/Geary. Rook is turned off my default as it generally doesn't add extra information from queen.
+#' @param queen queen method for connected components in Moran/Geary.
+#' @param perim perimeter of disks. Perimeter=F by default as it's very expensive to compute.
+#' @param transect Transect lines
+#' @param n.trans Number of transect lines layed out in a grid
+#' @details returns a list of indicators for each metric
+#' @export
+get_mets_info = function(ncc=T,nholes=T,grid.area=T,moran=F,geary=T,rook=F,
+                         queen=T,perim=F,transect=F,n.trans=0)
 {
   return(list('ncc'=ncc,
               'nholes'=nholes,
@@ -788,7 +651,7 @@ get_mets_info = function(ncc=T,nholes=T,grid.area=T,moran=F,geary=T,rook=F,queen
 #' @title MCMC with joint proposal
 #'
 #' @description Addaptive MCMC as defined in Haario et al. 2001 - "An adaptive Metropolis algorithm"
-#' @param data.dir directory with prior information file
+#' @param filename File where mcmc results should be saved. Also represents file that is loaded if load.theta=T
 #' @param n.samples total number of mcmc samples
 #' @param n.burn number of samples to burn and use for addapting proposal covariance
 #' @param update.every how often to update proposal covariance during burn in phase
@@ -799,23 +662,19 @@ get_mets_info = function(ncc=T,nholes=T,grid.area=T,moran=F,geary=T,rook=F,queen
 #' @examples
 #' # See examples folder for R markdown notebooks.
 #'
-mcmc = function(y_obs,fuel,prior,data.dir,n.samples=10000,n.burn=1000,
+mcmc = function(y_obs,fuel,prior,filename,n.samples=10000,n.burn=1000,
                 gen_reps = 1, avg = 'llh', gen_parallel = F, mets_parallel = T,
-                update.every=1,load.theta=0,make.cluster=T,parallel=T,verbose=0){
-  cores=min(100,parallel::detectCores())
-  if(make.cluster){
+                update.every=1,load.theta=0,make.cluster=T,parallel=T,verbose=0)
+{
+  cores=min(gen_reps,parallel::detectCores())
+  if(make.cluster & parallel){
     cl = parallel::makeCluster(cores)
     doParallel::registerDoParallel(cl)
   }
   dimX = fuel$dimX
   dimY = fuel$dimY
   
-  #prior.file = paste0(data.dir,'prior.RData')
-  save.file = paste0(data.dir, 'mcmc.RData')
-  #cat('prior file:',prior.file,'\n')
-  #load(prior.file)
-  cat('save file:',save.file,'\n')
-  
+  cat('save file:',filename,'\n')
   cat('n.samples:',n.samples,'\n')
   cat('n.burn:',n.burn,'\n')
   cat('load.theta:',load.theta,'\n')
@@ -825,16 +684,16 @@ mcmc = function(y_obs,fuel,prior,data.dir,n.samples=10000,n.burn=1000,
     theta = matrix(0,nrow=n.samples, ncol=p.t)
     accept = numeric(n.samples)
     theta.curr = prior$theta_est
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$ldetS, prior$Sinv, mets_info, gen_reps, avg, gen_parallel, mets_parallel) + lprior(theta.curr,prior$prior_params)
+    ll = llh(y_obs, theta.curr, dimX, dimY, prior$ldetS, prior$Sinv, gen_reps, avg, gen_parallel, mets_parallel) + lprior(theta.curr,prior$prior_params)
     start = 1
   } else{
     cat('loading previous samples.\n')
-    load(save.file)
+    load(filename)
     start = nrow(theta) + 1
     accept = c(accept,numeric(n.samples))
     theta.curr = theta[nrow(theta),]
     theta = rbind(theta,matrix(0,nrow=n.samples, ncol=p.t))
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$ldetS, prior$Sinv, mets_info, gen_reps, avg, gen_parallel, mets_parallel) + lprior(theta.curr,prior$prior_params)
+    ll = llh(y_obs, theta.curr, dimX, dimY, prior$ldetS, prior$Sinv, gen_reps, avg, gen_parallel, mets_parallel) + lprior(theta.curr,prior$prior_params)
     theta = rbind(theta,matrix(0,nrow=n.samples, ncol=p.t))
   }
   
@@ -864,9 +723,9 @@ mcmc = function(y_obs,fuel,prior,data.dir,n.samples=10000,n.burn=1000,
     if(any(prop<prior$prior_params$lb) | any(prop>prior$prior_params$ub)){
       ll_prop = -Inf
     } else{
-      ll_prop = llh(y_obs, prop, dimX, dimY, prior$ldetS, prior$Sinv, mets_info, gen_reps, avg, gen_parallel, mets_parallel) + lprior(prop,prior$prior_params)
+      ll_prop = llh(y_obs, prop, dimX, dimY, prior$ldetS, prior$Sinv, gen_reps, avg, gen_parallel, mets_parallel) + lprior(prop,prior$prior_params)
     }
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$ldetS, prior$Sinv, mets_info, gen_reps, avg, gen_parallel, mets_parallel) + lprior(theta.curr,prior$prior_params)
+    ll = llh(y_obs, theta.curr, dimX, dimY, prior$ldetS, prior$Sinv, gen_reps, avg, gen_parallel, mets_parallel) + lprior(theta.curr,prior$prior_params)
     
     # might help with mixing to recompute ll here since it's stochastic
     # This was necessary for my FlaGP stochastic likelihood mcmc
@@ -881,36 +740,38 @@ mcmc = function(y_obs,fuel,prior,data.dir,n.samples=10000,n.burn=1000,
       theta[i,] = theta.curr # reject -> reset theta
     }
     
-    # for the first 100 iterations be greedy, updating the covriance matrix every time there is an accepted sample
+    # for the first 100 iterations be greedy, updating the covariance matrix every time there is an accepted sample
     # and use only accepted samples for the estimate. We specify sum(accept>2) as the estimate of the covariance matrix
     # needs a few samples to work
-    if(update.every>0 & i<100 & accept[i] & sum(accept>2)){
+    if(update.every>0 & i<=100 & accept[i] & sum(accept>2)){
       # greedy in the beginning, update any time there is an accepted sample
       prop.cov = cov(theta[accept,]) + diag(eps,p.t)
     }
-    if(update.every>0 & i<= n.burn & i %% update.every == 0){
+    if(update.every>0 & i>100 & i<= n.burn & i %% update.every == 0){
       # if previous samples were passed to the function, use them for estimation
       prop.cov = cov(theta[1:i,]) + diag(eps,p.t)
-      #C.store[as.integer(i/update.every),,] = C
     }
     
     if(i%%1000==0){
       theta.save = theta[1:i,]
-      save(prop.cov,theta.save,file=save.file)
+      save(prop.cov,theta.save,file=filename)
     }
   }
   
-  cat('saving mcmc results to',save.file,'\n')
+  cat('saving mcmc results to',filename,'\n')
   old.samples = 1:(start-1)
   new.samples = (start+n.burn):(n.samples+start-1)
   theta = theta[c(old.samples,new.samples),]
   accept = accept[c(old.samples,new.samples)]
-  save(prop.cov,theta,accept,file=save.file)
+  save(prop.cov,theta,accept,file=filename)
   if(make.cluster)
     parallel::stopCluster(cl)
   cat('done.')
-  return(list('theta'=theta,
-              'prop.cov'=prop.cov,
-              'accept'=accept))
+  return(list('theta' = theta,
+              'prop.cov' = prop.cov,
+              'accept' = accept,
+              'y_obs' = y_obs,
+              'fuel' = fuel,
+              'prior' = prior))
 }
 
