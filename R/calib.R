@@ -62,7 +62,7 @@ moran_geary = function(afs, rq="rook", moran=T, geary=T)
   # i think this was an error which caused matrix size bugs for rectanglular domains
   dd = dim(afs)
   ids = expand.grid(1:dd[1], 1:dd[2])
-  dm = sqrt(plgp::distance(ids))
+  dm = distances::distances(ids)
 
   if (rq == "rook"){
     wmat = ifelse(dm > 1, 0, 1)
@@ -303,7 +303,7 @@ mets = function(dat, info, dimX, dimY)
     ptm = proc.time()[3]
     r_mat =  matrix(rep(dat$r, n), ncol=n, byrow=T)
     r_pairs = r_mat + t(r_mat)
-    cent_dist = sqrt(plgp::distance(dat[, c("X", "Y")]))
+    cent_dist = distances::distances(dat[, c("X", "Y")])
     incidence = matrix(as.numeric(cent_dist <= r_pairs), nrow=n, ncol=n, byrow = T)
 
     ig = igraph::graph_from_adjacency_matrix(incidence * (1 / cent_dist),
@@ -322,7 +322,7 @@ mets = function(dat, info, dimX, dimY)
       # these are normally computed in ncc so if we don't do ncc we must compute them here
       r_mat =  matrix(rep(dat$r, n), ncol=n, byrow=T)
       r_pairs = r_mat + t(r_mat)
-      cent_dist = sqrt(plgp::distance(dat[, c("X", "Y")]))
+      cent_dist = distances::distances(dat[, c("X", "Y")])
     }
     # why a threshold of 5?
     homo = TDAstats::calculate_homology(cent_dist / r_pairs,

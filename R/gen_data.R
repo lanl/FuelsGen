@@ -23,8 +23,6 @@ GP_predict = function(gp_fit,xy,rho,xy.pred,y.train)
 {
   # cross-covariance of training locations and prediction locations
   K.xy.pred = cov_mat(rho,xy.pred,xy)
-  # covariance matrix of prediction locations
-  K.pred = cov_mat(rho,xy.pred)
   # mean prediction
   K.xy.pred%*%gp_fit$invK%*%y.train
 }
@@ -32,7 +30,12 @@ GP_predict = function(gp_fit,xy,rho,xy.pred,y.train)
 # compute squared exponential covariance matrix at points x,y
 cov_mat = function(rho,x,y=NULL)
 {
-  exp(-plgp::distance(x,y) / (2*rho^2))
+  if(is.null(y)){
+    d = as.matrix(distances::distances(x))
+  } else{
+    d = sqrt(plgp::distance(x,y))
+  }
+  exp(-d^2 / (2*rho^2))
 }
 
 # Generate 'reps' fuel maps with parameters theta over a domain of size [0,dimX]x[0,dimY]
