@@ -68,14 +68,22 @@ plot_fuels = function(data){
                 plot.list[[i]] = ggplot2::ggplot() +
                     ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r, fill = h), data=data$dat[[i]]) + 
                     ggplot2::labs(x='X (m)',y='Y (m)',fill='height (m)') + 
-                    ggplot2::theme(plot.margin=ggplot2::margin(t = 0, r = 0, b = 0, l = 0, unit = "pt"), text = ggplot2::element_text(size = 5)) + 
+                    ggplot2::theme_bw() + 
+                    ggplot2::theme(plot.margin=ggplot2::margin(t = 0, r = 0, b = 0, l = 0, unit = "pt"), 
+                                     axis.text = ggplot2::element_text(size = 15), 
+                                     axis.title = ggplot2::element_text(size = 15),
+                                     axis.ticks = ggplot2::element_line(linewidth = 1.5)) + 
                     ggplot2::coord_fixed(xlim = c(-1, data$dimX+1), ylim = c(-1, data$dimY+1))
             } else{
                 hmax = 0
                 plot.list[[i]] = ggplot2::ggplot() + 
-                    ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r), fill='darkgreen', data=data$dat[[i]]) + 
+                    ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r), fill=adjustcolor('grey',alpha.f=.5), data=data$dat[[i]]) + 
                     ggplot2::labs(x='X (m)',y='Y (m)') + 
-                    ggplot2::theme(plot.margin=ggplot2::margin(t = 0, r = 0, b = 0, l = 0, unit = "pt"), text = ggplot2::element_text(size = 5)) +
+                    ggplot2::theme_bw() + 
+                    ggplot2::theme(plot.margin=ggplot2::margin(t = 0, r = 0, b = 0, l = 0, unit = "pt"), 
+                                   axis.text = ggplot2::element_text(size = 15),
+                                   axis.title = ggplot2::element_text(size = 15),
+                                   axis.ticks = ggplot2::element_line(linewidth = 1.5)) +
                     ggplot2::coord_fixed(xlim = c(-1, data$dimX+1), ylim = c(-1, data$dimY+1))
             }
         }
@@ -93,12 +101,14 @@ plot_fuels = function(data){
             myplot = ggplot2::ggplot() +
                      ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r, fill = h), data=data$dat[[1]]) + 
                      ggplot2::labs(x='X (m)',y='Y (m)',fill='height (m)') + 
+                     ggplot2::theme_bw() + 
                      ggplot2::theme(aspect.ratio = data$dimY/data$dimX) +
                      ggplot2::coord_fixed(xlim = c(-1, data$dimX+1), ylim = c(-1, data$dimY+1))
         } else{
             myplot = ggplot2::ggplot() + 
-                     ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r), fill='darkgreen', data=data$dat[[1]]) + 
+                     ggforce::geom_circle(ggplot2::aes(x0 = X, y0 = Y, r = r), fill=adjustcolor('grey',alpha.f=.5), data=data$dat[[1]]) + 
                      ggplot2::labs(x='X (m)',y='Y (m)') + 
+                     ggplot2::theme_bw() + 
                      ggplot2::theme(aspect.ratio = data$dimY/data$dimX) +
                      ggplot2::coord_fixed(xlim = c(-1, data$dimX+1), ylim = c(-1, data$dimY+1))
         }

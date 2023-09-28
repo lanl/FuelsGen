@@ -1,4 +1,4 @@
-llh = function(y, theta, dimX, dimY, ldetS, Sinv, gen_reps = 1, avg = 'mets', gen_parallel = F, mets_parallel = F, median = F)
+llh = function(y, theta, dimX, dimY, Sigma_prior, gen_reps = 1, avg = 'mets', gen_parallel = F, mets_parallel = F, median = F)
 {
   sim_fuels = gen_fuels(dimX, dimY,
                  theta[4],
@@ -9,6 +9,13 @@ llh = function(y, theta, dimX, dimY, ldetS, Sinv, gen_reps = 1, avg = 'mets', ge
                  reps=gen_reps, GP.init.size = 100, seed=NULL, logis.scale=.217622, verbose=F, parallel = gen_parallel)
 
   metrics = get_mets(sim_fuels, y$info, mets_parallel)
+  
+  # inverse wishart conjugate prior - covariance matrices are multiplied by n-1 to account for
+  # the division by n-1 in the cov() function
+  Sigma_gen = cov(metrics$mets)
+  Sigma = LaplacesDemon::rinvwishart(prior$nu + gen_reps, (prior$nu-1)*Sigma_prior + (gen_reps-1)*Sigma_gen)
+  Sinv = chol2inv(chol(Sigma))
+  ldetS = determinant(Sigma)$modulus
   
   if(avg == 'mets'){
     # average over the metrics and compute the likelihood once
@@ -30,11 +37,13 @@ llh = function(y, theta, dimX, dimY, ldetS, Sinv, gen_reps = 1, avg = 'mets', ge
       }
     }
   }
+  returns = list(Sigma=Sigma)
   if(median){
-    return(median(llh))
+    returns$llh = median(llh)
   } else{
-    return(mean(llh))
+    returns$llh = mean(llh)
   }
+  return(returns)
 }
 
 lprior = function(theta,params)
@@ -62,7 +71,7 @@ moran_geary = function(afs, rq="rook", moran=T, geary=T)
   # i think this was an error which caused matrix size bugs for rectanglular domains
   dd = dim(afs)
   ids = expand.grid(1:dd[1], 1:dd[2])
-  dm = distances::distances(ids)
+  dm = as.matrix(distances::distances(ids))
 
   if (rq == "rook"){
     wmat = ifelse(dm > 1, 0, 1)
@@ -303,9 +312,8 @@ mets = function(dat, info, dimX, dimY)
     ptm = proc.time()[3]
     r_mat =  matrix(rep(dat$r, n), ncol=n, byrow=T)
     r_pairs = r_mat + t(r_mat)
-    cent_dist = distances::distances(dat[, c("X", "Y")])
-    incidence = matrix(as.numeric(cent_dist <= r_pairs), nrow=n, ncol=n, byrow = T)
-
+    cent_dist = as.matrix(distances::distances(dat[, c("X", "Y")]))
+    incidence = cent_dist <= r_pairs
     ig = igraph::graph_from_adjacency_matrix(incidence * (1 / cent_dist),
                                              weighted = T, diag = F, mode="undirected")
     #ds = igraph::distances(ig)
@@ -322,7 +330,7 @@ mets = function(dat, info, dimX, dimY)
       # these are normally computed in ncc so if we don't do ncc we must compute them here
       r_mat =  matrix(rep(dat$r, n), ncol=n, byrow=T)
       r_pairs = r_mat + t(r_mat)
-      cent_dist = distances::distances(dat[, c("X", "Y")])
+      cent_dist = as.matrix(distances::distances(dat[, c("X", "Y")]))
     }
     # why a threshold of 5?
     homo = TDAstats::calculate_homology(cent_dist / r_pairs,
@@ -517,10 +525,12 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
                           gen_parallel = F, mets_parallel = T, make.cluster = F,
                           seed = NULL)
 {
+  cluster.made = 0
   if(!est_cov_obs & (gen_parallel | mets_parallel)){
     cores = min(max(est_cov_samples,est_cov_reps),parallel::detectCores())
     cl = parallel::makeCluster(cores)
     doParallel::registerDoParallel(cl)
+    cluster.made = 1
   }
   lambda_est = numeric(fuel$reps)
   mu_est = numeric(fuel$reps)
@@ -554,6 +564,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
   if(est_cov_obs){
     # estimate Sigma matrix using observed metrics
     Sigma = cov(metrics$mets)
+    nu = nrow(metrics$mets)
   } else{
     if(!is.null(seed))
       set.seed(seed)
@@ -580,6 +591,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
       metrics_samples = rbind(metrics_samples,colMeans(get_mets(fuel_samp,metrics$info,mets_parallel)$mets))
     }
     Sigma = cov(rbind(metrics$mets,metrics_samples))
+    nu = est_cov_samples * est_cov_reps + nrow(metrics$mets)
   }
   
   # set rho_est to prior mean
@@ -589,7 +601,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
     rho_est = mean(est_rho_prior$params)
   }
   
-  if(make.cluster)
+  if(cluster.made)
     parallel::stopCluster(cl)
   Sinv = solve(Sigma + 1e-8*diag(dim(Sigma)[1]))
   ldetS = determinant(Sigma)$modulus
@@ -614,6 +626,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
   return(list('prior_params'=prior_params,
               'theta_est'=c(rho_est,mu_est,sigma_est,lambda_est),
               'Sigma'=Sigma,
+              'nu' = nu, # numer of 'observations' used to estimate covariance
               'Sinv'=Sinv,
               'ldetS'=ldetS))
 }
@@ -662,9 +675,10 @@ get_mets_info = function(ncc=T,nholes=T,grid.area=T,moran=F,geary=T,rook=F,
 #' @examples
 #' # See examples folder for R markdown notebooks.
 #'
-mcmc = function(y_obs,fuel,prior,filename,n.samples=10000,n.burn=1000,
+mcmc = function(y_obs,fuel,prior,filename,
+                n.samples=10000,n.burn=1000,stop.update=1000,
                 gen_reps = 1, avg = 'llh', gen_parallel = F, mets_parallel = T,
-                update.every=1,load.theta=0,make.cluster=T,parallel=T,verbose=0)
+                update.every=1,save.every=1000,load.theta=0,make.cluster=T,parallel=T,verbose=0)
 {
   cores=min(gen_reps,parallel::detectCores())
   if(make.cluster & parallel){
@@ -681,10 +695,14 @@ mcmc = function(y_obs,fuel,prior,filename,n.samples=10000,n.burn=1000,
   
   p.t = 4
   if(load.theta==0){
+    Sigma = vector(mode='list',length=n.samples)
     theta = matrix(0,nrow=n.samples, ncol=p.t)
     accept = numeric(n.samples)
     theta.curr = prior$theta_est
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$ldetS, prior$Sinv, gen_reps, avg, gen_parallel, mets_parallel) + lprior(theta.curr,prior$prior_params)
+    theta.curr[1] = 3
+    ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, gen_reps, avg, gen_parallel, mets_parallel)
+    ll$llh = ll$llh + lprior(theta.curr,prior$prior_params)
+    Sigma[[1]] = ll$Sigma
     start = 1
   } else{
     cat('loading previous samples.\n')
@@ -693,18 +711,20 @@ mcmc = function(y_obs,fuel,prior,filename,n.samples=10000,n.burn=1000,
     accept = c(accept,numeric(n.samples))
     theta.curr = theta[nrow(theta),]
     theta = rbind(theta,matrix(0,nrow=n.samples, ncol=p.t))
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$ldetS, prior$Sinv, gen_reps, avg, gen_parallel, mets_parallel) + lprior(theta.curr,prior$prior_params)
-    theta = rbind(theta,matrix(0,nrow=n.samples, ncol=p.t))
+    ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, gen_reps, avg, gen_parallel, mets_parallel)
+    ll$llh = ll$llh + lprior(theta.curr,prior$prior_params)
+    Sigma = append(Sigma,vector(mode = 'list', length=n.samples))
+    Sigma[[start]] = ll$Sigma
   }
-  
-  prop.sd = .1*theta.curr # initial proposal sd is 10% of the data value
+  ll_prop = list()
+  s.d = 2.4^2/p.t
+  eps = sqrt(.Machine$double.eps)
+  prop.sd = .01*theta.curr # initial proposal sd is 1% of the data value
   if(!load.theta){
     prop.cov = diag(prop.sd^2)
   } else{
-    prop.cov = cov(theta[1:(start-1),])
+    prop.cov = cov(theta[1:(start-1),]) + diag(eps,p.t)
   }
-  s.d = 2.4^2/p.t
-  eps = sqrt(.Machine$double.eps)
   
   cat('parameter bounds:\n')
   cat('rho:',prior$prior_params$lb[1],prior$prior_params$ub[1],'\n')
@@ -721,53 +741,64 @@ mcmc = function(y_obs,fuel,prior,filename,n.samples=10000,n.burn=1000,
     }
     prop = mvtnorm::rmvnorm(1,theta.curr,prop.cov)
     if(any(prop<prior$prior_params$lb) | any(prop>prior$prior_params$ub)){
-      ll_prop = -Inf
+      ll_prop$llh = -Inf
     } else{
-      ll_prop = llh(y_obs, prop, dimX, dimY, prior$ldetS, prior$Sinv, gen_reps, avg, gen_parallel, mets_parallel) + lprior(prop,prior$prior_params)
+      ll_prop = llh(y_obs, prop, dimX, dimY, prior$Sigma, gen_reps, avg, gen_parallel, mets_parallel)
+      ll_prop$llh = ll_prop$llh + lprior(prop,prior$prior_params)
     }
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$ldetS, prior$Sinv, gen_reps, avg, gen_parallel, mets_parallel) + lprior(theta.curr,prior$prior_params)
+    # recomputing ll is necessary for mixing, just like in FlaGP. Otherwise the chain will stick.
+    if(i>start){
+      ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, gen_reps, avg, gen_parallel, mets_parallel) 
+      ll$llh = ll$llh + lprior(theta.curr,prior$prior_params)
+    }
     
-    # might help with mixing to recompute ll here since it's stochastic
-    # This was necessary for my FlaGP stochastic likelihood mcmc
-    # however, this might not be necessary because of the averaging
-    if (runif(1) < exp(ll_prop - ll)){
+    if (runif(1) < exp(ll_prop$llh - ll$llh)){
       accept[i] = 1
       theta.curr = prop
       theta[i,] = prop
+      Sigma[[i]] = ll_prop$Sigma
       ll = ll_prop
     } else {
       accept[i] = 0
       theta[i,] = theta.curr # reject -> reset theta
+      Sigma[[i]] = ll$Sigma
     }
     
     # for the first 100 iterations be greedy, updating the covariance matrix every time there is an accepted sample
     # and use only accepted samples for the estimate. We specify sum(accept>2) as the estimate of the covariance matrix
     # needs a few samples to work
-    if(update.every>0 & i<=100 & accept[i] & sum(accept>2)){
+    if(update.every>0 & i<=100 & accept[i] & sum(accept)>1){
       # greedy in the beginning, update any time there is an accepted sample
-      prop.cov = cov(theta[accept,]) + diag(eps,p.t)
+      prop.cov = cov(theta[c(1,which(accept==1)),]) + diag(eps,p.t)
     }
-    if(update.every>0 & i>100 & i<= n.burn & i %% update.every == 0){
+    if(update.every>0 & i>100 & i<=stop.update & i%%update.every==0){
       # if previous samples were passed to the function, use them for estimation
       prop.cov = cov(theta[1:i,]) + diag(eps,p.t)
     }
     
-    if(i%%1000==0){
+    if(i%%save.every==0){
       theta.save = theta[1:i,]
-      save(prop.cov,theta.save,file=filename)
+      Sigma.save = Sigma[1:i]
+      save(prop.cov,theta.save,Sigma.save,file=filename)
     }
   }
   
   cat('saving mcmc results to',filename,'\n')
-  old.samples = 1:(start-1)
+  if(start>1){
+    old.samples = 1:(start-1)
+  } else{
+    old.samples = c()
+  }
   new.samples = (start+n.burn):(n.samples+start-1)
   theta = theta[c(old.samples,new.samples),]
+  Sigma = Sigma[c(old.samples,new.samples)]
   accept = accept[c(old.samples,new.samples)]
-  save(prop.cov,theta,accept,file=filename)
+  save(prop.cov,theta,Sigma,accept,file=filename)
   if(make.cluster)
     parallel::stopCluster(cl)
   cat('done.')
   return(list('theta' = theta,
+              'Sigma' = Sigma,
               'prop.cov' = prop.cov,
               'accept' = accept,
               'y_obs' = y_obs,
