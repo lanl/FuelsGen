@@ -72,6 +72,7 @@ gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1,
       dat=data.frame(X=numeric(),Y=numeric())
       
       gp_mean = GP_sample(gp_fit,heterogeneity.scale)
+      gp_mean = gp_mean - mean(gp_mean)
       
       n_cand = 50
       while(nrow(dat)<n_plus){

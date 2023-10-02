@@ -562,9 +562,16 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
   prior.ub = c(rho_max, 3, 10*sigma_est, lambda_est*2)
   
   if(est_cov_obs){
-    # estimate Sigma matrix using observed metrics
-    Sigma = cov(metrics$mets)
-    nu = nrow(metrics$mets)
+    if(fuel$reps>1){
+      # estimate Sigma matrix using observed metrics
+      Sigma = cov(metrics$mets)
+      nu = nrow(metrics$mets)
+    } else{
+      # prior covariance is 10% standard error
+      Sigma = diag(as.numeric(.1^2*metrics$mets))
+      nu = 2 # this isn't quite true, but we need nu>1 for the prior (nu-1)*Sigma to work
+    }
+    
   } else{
     if(!is.null(seed))
       set.seed(seed)
