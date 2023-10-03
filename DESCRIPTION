@@ -25,4 +25,6 @@ Imports:
     parallel,
     foreach,
     plotrix,
-    here
+    here,
+    distances,
+    LaplacesDemon

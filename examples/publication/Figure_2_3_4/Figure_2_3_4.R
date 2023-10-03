@@ -1,15 +1,18 @@
-load(here::here('examples/publication/Figure_2_3_4/mcmc_n_25_avg_mets.RData'))
+load(here::here('examples/publication/Figure_2_3_4/mcmc_n_1_y_cov_avg_mets.RData'))
+theta.n.1.avg.mets = theta
+# load(here::here('examples/publication/Figure_2_3_4/mcmc_n_10_avg_mets.RData'))
+# theta.n.10.avg.mets = theta
+load(here::here('examples/publication/Figure_2_3_4/mcmc_n_25_y_cov_avg_mets.RData'))
 theta.n.25.avg.mets = theta
-load(here::here('examples/publication/Figure_2_3_4/mcmc_n_10_avg_mets.RData'))
-theta.n.10.avg.mets = theta
+
 
 # unif avg mets
-load(here::here('examples/publication/Figure_2_3_4/mcmc_n_1_rho_unif_0-10_avg_mets.RData'))
-theta.n.1.unif.0.10.avg.mets = theta
-load(here::here('examples/publication/Figure_2_3_4/mcmc_n_10_rho_unif_0-10_avg_mets.RData'))
-theta.n.10.unif.0.10.avg.mets = theta
-load(here::here('examples/publication/Figure_2_3_4/mcmc_n_25_rho_unif_0-10_avg_mets.RData'))
-theta.n.25.unif.0.10.avg.mets = theta
+# load(here::here('examples/publication/Figure_2_3_4/mcmc_n_1_rho_unif_0-10_avg_mets.RData'))
+# theta.n.1.unif.0.10.avg.mets = theta
+# load(here::here('examples/publication/Figure_2_3_4/mcmc_n_10_rho_unif_0-10_avg_mets.RData'))
+# theta.n.10.unif.0.10.avg.mets = theta
+# load(here::here('examples/publication/Figure_2_3_4/mcmc_n_25_rho_unif_0-10_avg_mets.RData'))
+# theta.n.25.unif.0.10.avg.mets = theta
 
 # gamma avg mets
 load(here::here('examples/publication/Figure_2_3_4/mcmc_n_1_rho_gamma_3-1_avg_mets.RData'))
@@ -68,7 +71,10 @@ dev.off()
 
 # Figure 3
 png("examples/publication/Figure_2_3_4/n_10_vs_n_25.png",width=7,height=5,units="in",res=1200)
-contour_pairs(list(theta.n.10.avg.mets,theta.n.25.avg.mets),
+# contour_pairs(list(theta.n.10.avg.mets,theta.n.25.avg.mets),
+#               labels = c('m=10','m=25'),
+#               truth,mu.min=.7,mu.max=1.3)
+contour_pairs(list(theta.n.25.avg.mets),
               labels = c('m=10','m=25'),
               truth,mu.min=.7,mu.max=1.3)
 dev.off()
@@ -77,6 +83,7 @@ dev.off()
 png('examples/publication/Figure_2_3_4/n_prior_confidence.png')
 labs = c('rho','mu','sigma^2','lambda')
 lims = list(c(0,10),c(.8,1.5),c(0,.21),c(.1,.4))
+truth = c(3,1,.1,.25)
 # prior intervals rho, mu, sigma, lambda
 # var.samp = rgamma(1e6,prior$prior_params$prec_shape,1/prior$prior_params$prec_rate)
 # quant.prior = cbind(qunif(c(.025,.975),0,10),
@@ -100,26 +107,26 @@ for(i in 1:4){
     legend(inset=c(.1,.05),'topleft',legend=expression(lambda),cex=1.5,bty='n')
   }
   abline(h=truth[i],col='red',lty=2)
-  quant.unif = cbind(quantile(theta.n.1.unif.0.10.avg.mets[,i],c(.025,.975)),
-                     quantile(theta.n.10.unif.0.10.avg.mets[,i],c(.025,.975)),
-                     quantile(theta.n.25.unif.0.10.avg.mets[,i],c(.025,.975)))
+  # quant.unif = cbind(quantile(theta.n.1.unif.0.10.avg.mets[,i],c(.025,.975)),
+  #                    quantile(theta.n.10.unif.0.10.avg.mets[,i],c(.025,.975)),
+  #                    quantile(theta.n.25.unif.0.10.avg.mets[,i],c(.025,.975)))
   
-  quant.obs = cbind(quantile(theta.n.10.avg.mets[,i],c(.025,.975)),
+  quant.obs = cbind(quantile(theta.n.1.avg.mets[,i],c(.025,.975)),
                     quantile(theta.n.25.avg.mets[,i],c(.025,.975)))
   
   quant.gam = cbind(quantile(theta.n.1.gamma.3.1.avg.mets[,i],c(.025,.975)),
                     quantile(theta.n.10.gamma.3.1.avg.mets[,i],c(.025,.975)),
                     quantile(theta.n.25.gamma.3.1.avg.mets[,i],c(.025,.975)))
   # quant.unif.2.4 = cbind(quantile(theta.n.10.unif.2.4[,i],c(.025,.975)))
-  arrows(x0=c(1,10,25),
-         y0=quant.unif[1,],
-         y1=quant.unif[2,],
-         code=3, angle=90, length=0.05, col="darkgreen", lwd=1)
+  # arrows(x0=c(1,10,25),
+  #        y0=quant.unif[1,],
+  #        y1=quant.unif[2,],
+  #        code=3, angle=90, length=0.05, col="darkgreen", lwd=1)
   # arrows(x0=c(10)+2,
   #        y0=quant.unif.2.4[1],
   #        y1=quant.unif.2.4[2],
   #        code=3, angle=90, length=0.05, col="maroon", lwd=1)
-  arrows(x0=c(10,25)-1,
+  arrows(x0=c(1,25)-1,
          y0=quant.obs[1,],
          y1=quant.obs[2,],
          code=3, angle=90, length=0.05, col="darkorange", lwd=1)
