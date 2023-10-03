@@ -3,13 +3,20 @@ truth = c(NA,mean(sfnf_4$r),var(sfnf_4$r),nrow(sfnf_4)/30/30)
 load(here::here("examples/publication/Figure_6_7_8/sfnf_4_posterior.RData"))
 
 # Figure 6
+<<<<<<< HEAD
 png('examples/publication/Figure_6_7_8/sfnf_4.png',width=5,height=5,units = 'in',res = 1200)
+=======
+>>>>>>> main
 fuel = list()
 fuel$dat = list()
 fuel$dat[[1]] = sfnf_4
 fuel$reps = 1; fuel$dimX = 30; fuel$dimY = 30
 plot_fuels(fuel)
+<<<<<<< HEAD
 dev.off()
+=======
+
+>>>>>>> main
 # Figure 7
 contour_pairs(list(theta),truth=truth,var.max=.5,labels = c('post'))
 
@@ -33,7 +40,11 @@ for(i in 1:n){
 plot.new(); plot.new()
 plot(x=c(),y=c(),xlim=c(0,30),ylim=c(0,30),xlab='X',ylab='Y',xaxt='n',yaxt='n',asp=1)
 for(j in 1:nrow(fuel$dat[[1]])){
+<<<<<<< HEAD
   plotrix::draw.circle(fuel$dat[[1]]$X[j],fuel$dat[[1]]$Y[j],fuel$dat[[1]]$r[j],col=adjustcolor('grey',alpha.f = .5))
+=======
+  plotrix::draw.circle(fuel$dat[[1]]$X[j],fuel$dat[[1]]$Y[j],fuel$dat[[1]]$r[j],col='darkgreen')
+>>>>>>> main
 }
 plot.new(); plot.new()
 rho = sample(theta[,1],n)
