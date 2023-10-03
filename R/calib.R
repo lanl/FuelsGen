@@ -726,7 +726,7 @@ mcmc = function(y_obs,fuel,prior,filename,
   ll_prop = list()
   s.d = 2.4^2/p.t
   eps = sqrt(.Machine$double.eps)
-  prop.sd = .01*theta.curr # initial proposal sd is 1% of the data value
+  prop.sd = .05*theta.curr # initial proposal sd is 5% of the data value
   if(!load.theta){
     prop.cov = diag(prop.sd^2)
   } else{
