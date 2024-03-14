@@ -4,11 +4,9 @@
 \alias{plot_fuels}
 \title{Plot fuel layouts}
 \usage{
-plot_fuels(data, filename = NULL)
+plot_fuels(data)
 }
 \arguments{
-\item{filename}{(string): file path for pdf output}
-
 \item{data:}{fuels data object returned from gen_fuels}
 }
 \description{

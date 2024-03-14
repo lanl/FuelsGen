@@ -309,36 +309,46 @@ mets = function(dat, info, dimX, dimY)
 
   #--- NCC ---#
   if(info$ncc){
-    ptm = proc.time()[3]
-    r_mat =  matrix(rep(dat$r, n), ncol=n, byrow=T)
-    r_pairs = r_mat + t(r_mat)
-    cent_dist = as.matrix(distances::distances(dat[, c("X", "Y")]))
-    incidence = cent_dist <= r_pairs
-    ig = igraph::graph_from_adjacency_matrix(incidence * (1 / cent_dist),
-                                             weighted = T, diag = F, mode="undirected")
-    #ds = igraph::distances(ig)
-    #ds[is.infinite(ds)] = 0
-    #max_d = max(ds)
-
-    ncc.val = igraph::components(ig)$no
-    ncc.time = proc.time()[3] - ptm
-  }
-  #--- N holes ---#
-  if(info$nholes){
-    ptm = proc.time()[3]
-    if(!info$ncc){
-      # these are normally computed in ncc so if we don't do ncc we must compute them here
+    if(n==1){
+      ncc.val = 0
+      ncc.time = 0
+    } else{
+      ptm = proc.time()[3]
       r_mat =  matrix(rep(dat$r, n), ncol=n, byrow=T)
       r_pairs = r_mat + t(r_mat)
       cent_dist = as.matrix(distances::distances(dat[, c("X", "Y")]))
+      incidence = cent_dist <= r_pairs
+      ig = igraph::graph_from_adjacency_matrix(incidence * (1 / cent_dist),
+                                               weighted = T, diag = F, mode="undirected")
+      #ds = igraph::distances(ig)
+      #ds[is.infinite(ds)] = 0
+      #max_d = max(ds)
+      
+      ncc.val = igraph::components(ig)$no
+      ncc.time = proc.time()[3] - ptm
     }
-    # why a threshold of 5?
-    homo = TDAstats::calculate_homology(cent_dist / r_pairs,
-                                        format = "distmat", threshold = 5, return_df = T)
-    #homo = TDApplied::PyH(cent_dist / r_pairs,
-    #                      distance_mat = TRUE, thresh = 5, ripser=ripser)
-    nholes.val = nrow(dplyr::filter(homo, dimension==1 & birth < 1 & death > 1))
-    nholes.time = proc.time()[3] - ptm
+  }
+  #--- N holes ---#
+  if(info$nholes){
+    if(n==1){
+      nholes.val = 0
+      nholes.time = 0
+    } else{
+      ptm = proc.time()[3]
+      if(!info$ncc){
+        # these are normally computed in ncc so if we don't do ncc we must compute them here
+        r_mat =  matrix(rep(dat$r, n), ncol=n, byrow=T)
+        r_pairs = r_mat + t(r_mat)
+        cent_dist = as.matrix(distances::distances(dat[, c("X", "Y")]))
+      }
+      # why a threshold of 5?
+      homo = TDAstats::calculate_homology(cent_dist / r_pairs,
+                                          format = "distmat", threshold = 5, return_df = T)
+      #homo = TDApplied::PyH(cent_dist / r_pairs,
+      #                      distance_mat = TRUE, thresh = 5, ripser=ripser)
+      nholes.val = nrow(dplyr::filter(homo, dimension==1 & birth < 1 & death > 1))
+      nholes.time = proc.time()[3] - ptm
+    }
   }
   #--- Gridded area ---#
   if(info$grid.area){
@@ -499,7 +509,7 @@ mets = function(dat, info, dimX, dimY)
                      nbreak,ifelse(nbreak>0,mean(breaks),0),ifelse(nbreak>1,var(breaks),0))
   }
   # include empirical estimates of parameters as metrics
-  metrics = c(metrics,2*n/dimX/dimY,mean(dat$r),sd(dat$r))
+  metrics = c(metrics,2*n/dimX/dimY,mean(dat$r),ifelse(n==1,0,sd(dat$r)))
   return(metrics)
 }
 
