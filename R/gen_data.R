@@ -7,7 +7,8 @@ GP_fit = function(xy,rho)
   K = cov_mat(rho,xy) + diag(sqrt(.Machine$double.eps),n)
   # can we make chol or inv faster using kronecker since K is evaluated on a grid?
   cholK = chol(K)
-  return(list(cholK=cholK,invK=chol2inv(cholK)))
+  invK = chol2inv(cholK)
+  return(list(cholK=cholK,invK=invK))
 }
 
 # Given the cholesky of the covariance matrix draw a random sample

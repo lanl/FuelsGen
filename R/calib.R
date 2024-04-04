@@ -1,4 +1,4 @@
-llh = function(y, theta, dimX, dimY, Sigma_prior, gen_reps = 1, avg = 'mets', gen_parallel = F, mets_parallel = F, median = F)
+llh = function(y, theta, dimX, dimY, Sigma_p, nu_p, gen_reps = 1, avg = 'mets', gen_parallel = F, mets_parallel = F, median = F)
 {
   sim_fuels = gen_fuels(dimX, dimY,
                  theta[4],
@@ -13,7 +13,7 @@ llh = function(y, theta, dimX, dimY, Sigma_prior, gen_reps = 1, avg = 'mets', ge
   # inverse wishart conjugate prior - covariance matrices are multiplied by n-1 to account for
   # the division by n-1 in the cov() function
   Sigma_gen = cov(metrics$mets)
-  Sigma = LaplacesDemon::rinvwishart(prior$nu + gen_reps, (prior$nu-1)*Sigma_prior + (gen_reps-1)*Sigma_gen)
+  Sigma = LaplacesDemon::rinvwishart(nu_p + gen_reps, (nu_p-1)*Sigma_p + (gen_reps-1)*Sigma_gen)
   Sinv = chol2inv(chol(Sigma))
   ldetS = determinant(Sigma)$modulus
   
@@ -531,7 +531,7 @@ mets = function(dat, info, dimX, dimY)
 #'
 get_prior_info = function(fuel,metrics,est_cov_obs=T,
                           est_cov_samples=25,est_cov_reps=25,
-                          est_rho_prior=list(prior='gamma',params=c(1,.33)),
+                          est_rho_prior=list(prior='gamma',params=c(1,10/fuel$dimX)),
                           gen_parallel = F, mets_parallel = T, make.cluster = F,
                           seed = NULL)
 {
@@ -550,9 +550,11 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
     mu_est[i] = mean(fuel$dat[[i]]$r)
     sigma_est[i] = sd(fuel$dat[[i]]$r)
   }
+  lambda_min = min(lambda_est)
+  lambda_max = max(lambda_est)
   lambda_est = mean(lambda_est)
-  mu_est = mean(mu_est)
-  sigma_est = mean(sigma_est)
+  mu_est = mean(mu_est,na.rm=T) # there may be observed domains with 0 fuel elements
+  sigma_est = mean(sigma_est,na.rm=T) # there may be observed domains with 0 fuel elements
   rho_max = max(fuel$dimX,fuel$dimY)/3
   
   # gamma parameters s.t. q95 ~~ rho_max
@@ -566,10 +568,9 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
   # the lower bound on lamda is very important. Certain metrics calculations will fail if not enough trees are sampled.
   # The error we get with small lamda is "Point cloud must have at least 2 points and at least 2 dimensions." I need to find out
   # which metric calculation is causing this.
-  # We choose to assume that the true lambda such that on average produce half the number of trees as observed are produced
-  # i.e. lambda >= lambda_est/2. And similarly we assume that lambda <= lambda_est*2
-  prior.lb = c(0,       0,   0, lambda_est/2)
-  prior.ub = c(rho_max, 3, 10*sigma_est, lambda_est*2)
+  # We choose to assume that the true lambda will not be smaller than 1/2 the observed relative density or greater than 2 times the max observed relative density
+  prior.lb = c(0,       0,   0, lambda_min/2)
+  prior.ub = c(rho_max, 3, 10*sigma_est, lambda_max*2)
   
   if(est_cov_obs){
     if(fuel$reps>1){
@@ -603,7 +604,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
       fuel_samp = gen_data(c(lambda_samples[i],rho_samples[i],mu_samples[i],sigma_samples[i]),
                            fuel$dimX, fuel$dimY, fuel$heterogeneity.scale, 
                            fuel$sp.cov.locs, fuel$sp.cov.vals, fuel$sp.cov.scale, 
-                           est_cov_reps, fuel$GP.init.size, seed = seed, fuel$logis.scale, gen_parallel)
+                           est_cov_reps, 100, seed = seed, fuel$logis.scale, gen_parallel)
       # add mean metrics to matrix
       metrics_samples = rbind(metrics_samples,colMeans(get_mets(fuel_samp,metrics$info,mets_parallel)$mets))
     }
@@ -717,7 +718,7 @@ mcmc = function(y_obs,fuel,prior,filename,
     accept = numeric(n.samples)
     theta.curr = prior$theta_est
     theta.curr[1] = 3
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, gen_reps, avg, gen_parallel, mets_parallel)
+    ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, prior$nu, gen_reps, avg, gen_parallel, mets_parallel)
     ll$llh = ll$llh + lprior(theta.curr,prior$prior_params)
     Sigma[[1]] = ll$Sigma
     start = 1
@@ -728,7 +729,7 @@ mcmc = function(y_obs,fuel,prior,filename,
     accept = c(accept,numeric(n.samples))
     theta.curr = theta[nrow(theta),]
     theta = rbind(theta,matrix(0,nrow=n.samples, ncol=p.t))
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, gen_reps, avg, gen_parallel, mets_parallel)
+    ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, prior$nu, gen_reps, avg, gen_parallel, mets_parallel)
     ll$llh = ll$llh + lprior(theta.curr,prior$prior_params)
     Sigma = append(Sigma,vector(mode = 'list', length=n.samples))
     Sigma[[start]] = ll$Sigma
@@ -760,12 +761,12 @@ mcmc = function(y_obs,fuel,prior,filename,
     if(any(prop<prior$prior_params$lb) | any(prop>prior$prior_params$ub)){
       ll_prop$llh = -Inf
     } else{
-      ll_prop = llh(y_obs, prop, dimX, dimY, prior$Sigma, gen_reps, avg, gen_parallel, mets_parallel)
+      ll_prop = llh(y_obs, prop, dimX, dimY, prior$Sigma, prior$nu, gen_reps, avg, gen_parallel, mets_parallel)
       ll_prop$llh = ll_prop$llh + lprior(prop,prior$prior_params)
     }
     # recomputing ll is necessary for mixing, just like in FlaGP. Otherwise the chain will stick.
     if(i>start){
-      ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, gen_reps, avg, gen_parallel, mets_parallel) 
+      ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, prior$nu, gen_reps, avg, gen_parallel, mets_parallel) 
       ll$llh = ll$llh + lprior(theta.curr,prior$prior_params)
     }
     
@@ -823,3 +824,80 @@ mcmc = function(y_obs,fuel,prior,filename,
               'prior' = prior))
 }
 
+mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
+                            n.samples=10000,n.burn=1000,adapt.par = c(100,20,.5,.75),
+                            prop.sigma = NULL,
+                            gen_reps = 1, avg = 'llh', gen_parallel = F, mets_parallel = T,
+                            load.theta=0,make.cluster=T,parallel=T,verbose=T)
+{
+  llh_mh_adaptive = function(theta)
+  {
+    # if theta passed on log scale
+    # theta = exp(theta)
+    if(any(theta<prior$prior_params$lb) | any(theta>prior$prior_params$ub)){
+      return(-Inf)
+    }
+    sim_fuels = gen_fuels(fuel$dimX, fuel$dimY,
+                          theta[4],
+                          theta[2], theta[3],
+                          height = NULL, sd_height = 0,
+                          theta[1], heterogeneity.scale = 1,
+                          sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL,
+                          reps=gen_reps, GP.init.size = 100, seed=NULL, logis.scale=.217622, verbose=F, parallel = gen_parallel)
+    
+    metrics = get_mets(sim_fuels, y_obs$info, mets_parallel)
+    
+    # inverse wishart conjugate prior - covariance matrices are multiplied by n-1 to account for
+    # the division by n-1 in the cov() function
+    Sigma_gen = cov(metrics$mets)
+    Sigma = LaplacesDemon::rinvwishart(prior$nu + gen_reps, (prior$nu-1)*prior$Sigma + (gen_reps-1)*Sigma_gen)
+    Sinv = chol2inv(chol(Sigma))
+    ldetS = determinant(Sigma)$modulus
+    
+    if(avg == 'mets'){
+      # average over the metrics and compute the likelihood once
+      metrics = colMeans(metrics$mets)
+      llh = 0
+      for(i in 1:nrow(y_obs$mets)){
+        # loop over replicate observations
+        llh = llh - 0.5 * (ldetS + ((y_obs$mets[i,,drop=F] - metrics) %*% Sinv %*% t(y_obs$mets[i,,drop=F] - metrics)))
+      }
+    } else if(avg == 'llh'){
+      # product likelihood over observations and generations (double product)
+      llh = numeric(gen_reps)
+      for(j in 1:length(llh)){
+        # loop over generated metrics
+        llh[j] = 0
+        for(i in 1:nrow(y_obs$mets)){
+          # loop over replicate observations
+          llh[j] = llh[j] - 0.5 * (ldetS + ((y_obs$mets[i,,drop=F] - metrics$mets[j,]) %*% Sinv %*% t(y_obs$mets[i,,drop=F] - metrics$mets[j,])))
+        }
+      }
+    }
+    # returns = list(Sigma=Sigma)
+    # if(median){
+    #   returns$llh = median(llh)
+    # } else{
+    #   returns$llh = mean(llh)
+    # }
+    # return(returns)
+    return(mean(llh)+lprior(theta,prior$prior_params))#+sum(log(theta)))
+  }
+  
+  cores=min(gen_reps,parallel::detectCores())
+  if(make.cluster & parallel){
+    cl = parallel::makeCluster(cores)
+    doParallel::registerDoParallel(cl)
+  }
+  p.t = length(prior$theta_est)
+  if(is.null(prop.sigma)){
+    prop.sigma = .1*prior$theta_est*diag(p.t)
+  }
+  mcmc = Metro_Hastings_Stochastic(li_func = llh_mh_adaptive, pars = prior$theta_est, prop_sigma = prop.sigma,
+                             par_names = c('rho','mu','sigma','lambda'),
+                             iterations = n.samples, burn_in = n.burn, adapt_par = adapt.par, quiet = !verbose)
+  if(!is.null(filename)){
+    save(mcmc,file=filename)
+  }
+  return(mcmc)
+}
