@@ -533,7 +533,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
                           est_cov_samples=25,est_cov_reps=25,
                           est_rho_prior=list(prior='gamma',params=c(1,10/fuel$dimX)),
                           gen_parallel = F, mets_parallel = T, make.cluster = F,
-                          seed = NULL)
+                          GP.init.size = 64, seed = NULL)
 {
   cluster.made = 0
   if(!est_cov_obs & (gen_parallel | mets_parallel)){
@@ -604,7 +604,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
       fuel_samp = gen_data(c(lambda_samples[i],rho_samples[i],mu_samples[i],sigma_samples[i]),
                            fuel$dimX, fuel$dimY, fuel$heterogeneity.scale, 
                            fuel$sp.cov.locs, fuel$sp.cov.vals, fuel$sp.cov.scale, 
-                           est_cov_reps, 100, seed = seed, fuel$logis.scale, gen_parallel)
+                           est_cov_reps, GP.init.size, seed = seed, fuel$logis.scale, gen_parallel)
       # add mean metrics to matrix
       metrics_samples = rbind(metrics_samples,colMeans(get_mets(fuel_samp,metrics$info,mets_parallel)$mets))
     }
@@ -826,7 +826,7 @@ mcmc = function(y_obs,fuel,prior,filename,
 
 mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
                             n.samples=10000,n.burn=1000,adapt.par = c(100,20,.5,.75),
-                            prop.sigma = NULL,
+                            prop.sigma = NULL, GP.init.size = 64,
                             gen_reps = 1, avg = 'llh', gen_parallel = F, mets_parallel = T,
                             load.theta=0,make.cluster=T,parallel=T,verbose=T)
 {
@@ -837,13 +837,7 @@ mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
     if(any(theta<prior$prior_params$lb) | any(theta>prior$prior_params$ub)){
       return(-Inf)
     }
-    sim_fuels = gen_fuels(fuel$dimX, fuel$dimY,
-                          theta[4],
-                          theta[2], theta[3],
-                          height = NULL, sd_height = 0,
-                          theta[1], heterogeneity.scale = 1,
-                          sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL,
-                          reps=gen_reps, GP.init.size = 100, seed=NULL, logis.scale=.217622, verbose=F, parallel = gen_parallel)
+    sim_fuels = fuelsgen:::gen_data(theta,fuel$dimX,fuel$dimY,1,NULL,NULL,NULL,gen_reps,GP.init.size,NULL,.217622,F)
     
     metrics = get_mets(sim_fuels, y_obs$info, mets_parallel)
     

@@ -57,14 +57,47 @@ gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1,
     mu_h = NULL
   }
   
-  grid.len = as.integer(sqrt(GP.init.size))
-
-  X = seq(0,dimX,length.out=grid.len)
-  Y = seq(0,dimY,length.out=grid.len)
-  XY = expand.grid(X,Y)
+  W = owin(c(0,dimX),c(0,dimY), mask=matrix(TRUE, GP.init.size,GP.init.size))
+  gamma = rGRFgauss(W = W, mu = 0, var = 1, scale = rho,nsim = reps)
   
-  gp_fit = GP_fit(XY,rho)
+  # grid.len = as.integer(sqrt(GP.init.size))
+
+  # X = seq(0,dimX,length.out=grid.len)
+  # Y = seq(0,dimY,length.out=grid.len)
+  # XY = expand.grid(X,Y)
+  
+  # gp_fit = GP_fit(XY,rho)
   n_plus = rpois(reps, lambda * dimX * dimY)
+  dat <- vector(mode="list", length=reps)
+  for(i in 1:reps){
+    Eta = gamma[[i]]
+    Eta$v = plogis(Eta$v - mean(Eta$v),0,logis.scale)
+    #### sample pixels directly ####
+    nn = n_plus[i]
+    if(!is.finite(nn))
+      stop(paste("Unable to generate Poisson process with a mean of",
+                 nn, "points"))
+    if(nn>0){
+      dx <- Eta$xstep/2
+      dy <- Eta$ystep/2
+      df <- as.data.frame(Eta)
+      npix <- nrow(df)
+      lpix <- df$value
+      ii <- sample.int(npix, size=nn, replace=TRUE, prob=lpix)
+      xx <- df$x[ii] + runif(nn, -dx, dx)
+      yy <- df$y[ii] + runif(nn, -dy, dy)
+      dat[[i]] <- data.frame(X=xx,Y=yy)
+      dat[[i]]$r = truncdist::rtrunc(nn,'norm',a=0,b=Inf,mu_r,sigma_r)
+      if(!is.null(mu_h)){
+        dat[[i]]$h = truncdist::rtrunc(nn,'norm',a=0,b=Inf,mu_h,sigma_h)
+      }
+    } else{
+      dat[[i]] = data.frame(X=numeric(),Y=numeric(),r=numeric())
+      if(!is.null(mu_h)){
+        dat[[i]]$h = numeric()
+      }
+    }
+  }
   
   realization = function(n_plus,gp_fit,XY,dimX,dimY,rho,heterogeneity.scale,mu_r,sigma_r,mu_h,sigma_h,
                          sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL){
@@ -108,17 +141,17 @@ gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1,
     return(dat)
   }
   
-  if(parallel){
-    cl = parallel::makeCluster(min(reps,parallel::detectCores()))
-    doParallel::registerDoParallel(cl)
-    dat = foreach::foreach(i=1:reps) %dopar% realization(n_plus[i],gp_fit,XY,dimX,dimY,rho,heterogeneity.scale,mu_r,sigma_r,mu_h,sigma_h,sp.cov.locs,sp.cov.vals,sp.cov.scale)
-    parallel::stopCluster(cl)
-  } else{
-    dat = vector(mode='list',length=reps)
-    for(i in 1:reps){
-      dat[[i]] = realization(n_plus[i],gp_fit,XY,dimX,dimY,rho,heterogeneity.scale,mu_r,sigma_r,mu_h,sigma_h,sp.cov.locs,sp.cov.vals,sp.cov.scale)
-    }
-  }
+  # if(parallel){
+  #   cl = parallel::makeCluster(min(reps,parallel::detectCores()))
+  #   doParallel::registerDoParallel(cl)
+  #   dat = foreach::foreach(i=1:reps) %dopar% realization(n_plus[i],gp_fit,XY,dimX,dimY,rho,heterogeneity.scale,mu_r,sigma_r,mu_h,sigma_h,sp.cov.locs,sp.cov.vals,sp.cov.scale)
+  #   parallel::stopCluster(cl)
+  # } else{
+  #   dat = vector(mode='list',length=reps)
+  #   for(i in 1:reps){
+  #     dat[[i]] = realization(n_plus[i],gp_fit,XY,dimX,dimY,rho,heterogeneity.scale,mu_r,sigma_r,mu_h,sigma_h,sp.cov.locs,sp.cov.vals,sp.cov.scale)
+  #   }
+  # }
 
   # return parameters as they may be needed to calculate prior
   ret = list(dat=dat,dimX=dimX,dimY=dimY,reps=reps,
