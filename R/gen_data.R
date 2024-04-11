@@ -121,11 +121,13 @@ gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1,
   }
 
   # return parameters as they may be needed to calculate prior
-  return(list(dat=dat,dimX=dimX,dimY=dimY,reps=reps,
-              theta=theta,
-              heterogeneity.scale = heterogeneity.scale, 
-              sp.cov.locs = sp.cov.locs, sp.cov.vals = sp.cov.vals, sp.cov.scale = sp.cov.scale, 
-              GP.init.size=GP.init.size, seed = seed, logis.scale=logis.scale, parallel=parallel))
+  ret = list(dat=dat,dimX=dimX,dimY=dimY,reps=reps,
+             theta=theta,
+             heterogeneity.scale = heterogeneity.scale, 
+             sp.cov.locs = sp.cov.locs, sp.cov.vals = sp.cov.vals, sp.cov.scale = sp.cov.scale, 
+             GP.init.size=GP.init.size, seed = seed, logis.scale=logis.scale, parallel=parallel)
+  class(ret) = c('list','fuelsgen')
+  return(ret)
 }
 
 # csv.filenames: vector of filenames for repeat observations

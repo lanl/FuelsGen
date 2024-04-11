@@ -10,7 +10,7 @@ get_prior_info(
   est_cov_obs = T,
   est_cov_samples = 25,
   est_cov_reps = 25,
-  est_rho_prior = list(prior = "gamma", params = c(1, 0.33)),
+  est_rho_prior = list(prior = "gamma", params = c(1, 10/fuel$dimX)),
   gen_parallel = F,
   mets_parallel = T,
   make.cluster = F,

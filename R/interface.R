@@ -51,7 +51,7 @@ gen_fuels = function(dimX, dimY,
 #' @param data: fuels data object returned from gen_fuels
 #' @export
 #'
-plot_fuels = function(data){
+plot.fuelsgen = function(data){
     if(data$reps>0){
         plot.dim = min(5,ceiling(sqrt(data$reps)))
         plot.list = vector(mode='list',length=data$reps)
