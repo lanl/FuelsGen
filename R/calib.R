@@ -621,7 +621,9 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
   
   if(cluster.made)
     parallel::stopCluster(cl)
-  Sinv = solve(Sigma + 1e-8*diag(dim(Sigma)[1]))
+  
+  Sigma = Sigma + 1e-8*diag(dim(Sigma)[1])
+  Sinv = chol2inv(chol(Sigma))
   ldetS = determinant(Sigma)$modulus
   
   # save everything needed to calculate priors
@@ -631,7 +633,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
   prior_params$rho_max = rho_max
   prior_params$rho_shape = rho_shape
   prior_params$rho_rate = rho_rate
-  prior_params$mu_prior = "trunc normal"
+  prior_params$mu_prior = "truncnorm"
   prior_params$mu_mean = 1.5
   prior_params$mu_sd = .5
   prior_params$prec_prior = 'gamma'
@@ -640,7 +642,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
   prior_params$lambda_prior = 'gamma'
   prior_params$lambda_shape = 1
   prior_params$lambda_rate = 1/lambda_est
-  
+  prior_params$dist = c(rho_prior,'gamma','truncnorm','gamma')
   return(list('prior_params'=prior_params,
               'theta_est'=c(rho_est,mu_est,sigma_est,lambda_est),
               'Sigma'=Sigma,
@@ -843,7 +845,7 @@ mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
     
     # inverse wishart conjugate prior - covariance matrices are multiplied by n-1 to account for
     # the division by n-1 in the cov() function
-    Sigma_gen = cov(metrics$mets)
+    Sigma_gen = cov(metrics$mets) + 1e-8*diag(ncol(metrics$mets))
     Sigma = LaplacesDemon::rinvwishart(prior$nu + gen_reps, (prior$nu-1)*prior$Sigma + (gen_reps-1)*Sigma_gen)
     Sinv = chol2inv(chol(Sigma))
     ldetS = determinant(Sigma)$modulus
@@ -890,6 +892,8 @@ mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
   mcmc = Metro_Hastings_Stochastic(li_func = llh_mh_adaptive, pars = prior$theta_est, prop_sigma = prop.sigma,
                              par_names = c('rho','mu','sigma','lambda'),
                              iterations = n.samples, burn_in = n.burn, adapt_par = adapt.par, quiet = !verbose)
+  mcmc$prior = prior
+  class(mcmc) = c('list','fuelsgen_mcmc')
   if(!is.null(filename)){
     save(mcmc,file=filename)
   }

@@ -14,6 +14,7 @@ get_prior_info(
   gen_parallel = F,
   mets_parallel = T,
   make.cluster = F,
+  GP.init.size = 64,
   seed = NULL
 )
 }

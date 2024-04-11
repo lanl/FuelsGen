@@ -123,6 +123,61 @@ plot.fuelsgen = function(data){
     }
 }
 
+#' @title Diagnostic plots for mcmc calibration
+#'
+#' @description Plot a fuelsgen_mcmc object
+#' @param mcmc: fuelsgen_mcmc object from fuelsgen::mcmc_MH_adaptive()
+#' @param burn: Number of initial samples to discard in plots
+#' @param type: 'trace' or 'density'. 'trace' gives trace plots for the parameters, while 'density' plots the KDE and prior over the prior range
+#' @export
+#'
+plot.fuelsgen_mcmc = function(mcmc,burn=0,type='trace'){
+  par(mfrow=c(2,3)) # 5 parameters in the calibration
+  names = mcmc$par_names
+  nsamp = nrow(mcmc$trace)
+  lb = mcmc$prior$prior_params$lb
+  ub = calib$prior$prior_params$ub
+  # convert sigma to precision
+  sig_id = which(names=='sigma')
+  mcmc$trace[,sig_id] = 1/(mcmc$trace[,sig_id]^2)
+  ub[sig_id] = 1.1*max(mcmc$trace[,sig_id])
+  names[sig_id] = 'precision'
+  if(type=='trace'){
+    for(i in 1:length(names)){
+      plot(mcmc$trace[(burn+1):nsamp,i],type='l',
+           ylab=names[i],ylim=c(lb[i],ub[i]))
+    }
+  } else if(type=='density'){
+    for(i in 1:length(names)){
+      plot(density(mcmc$trace[,i],
+                   from = lb[i],to = ub[i]),
+           xlab=names[i],main='',ylab='density')
+      
+      # abline(v=mcmc$prior$theta_est[i])
+      switch(mcmc$prior$prior_params$dist[i],
+             gamma = {
+               if(names[i]=='lambda'){
+                 curve(dgamma(x,mcmc$prior$prior_params$lambda_shape,mcmc$prior$prior_params$lambda_rate),add=T,lty=2)
+               } else{
+                 curve(dgamma(x,mcmc$prior$prior_params$prec_shape,mcmc$prior$prior_params$prec_rate),add=T,lty=2)
+               }
+             },
+             uniform = {
+               curve(dunif(x,0,mcmc$prior$prior_params$rho_max),add=T,lty=2)
+             },
+             truncnorm = {
+               curve(truncdist::dtrunc(x,'norm',0,3,mcmc$prior$prior_params$mu_mean,mcmc$prior$prior_params$mu_sd),add=T,lty=2)
+             },
+             hcauchy = {
+               curve(LaplacesDemon::dhalfcauchy(x,mcmc$prior$prior_params$I_var_scale),add=T,lty=2)
+             })
+      # lines(priorfunc)
+    }
+  } else{
+    stop('Currently supported types are trace and density')
+  }
+}
+
 #' @title Fix raster
 #'
 #' @description Change raster extent and coordinates to work with the generative model. Also scale raster values to lie in [-1,1]. Return a list containing the raster, coordinates, and values all in the correct format for the model. 
