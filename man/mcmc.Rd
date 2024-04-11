@@ -14,7 +14,6 @@ mcmc(
   stop.update = 1000,
   gen_reps = 1,
   avg = "llh",
-  gen_parallel = F,
   mets_parallel = T,
   update.every = 1,
   save.every = 1000,

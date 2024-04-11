@@ -7,21 +7,20 @@
 gen_fuels(
   dimX,
   dimY,
-  density,
-  radius,
-  sd_radius,
+  density = 0.1/dimX/dimY,
+  radius = 1,
+  sd_radius = 0.1,
   height = NULL,
   sd_height = 0,
-  heterogeneity,
-  heterogeneity.scale = 1,
+  heterogeneity = mean(c(dimX, dimY))/3,
+  intensity.scale = 1,
   sp.cov.locs = NULL,
   sp.cov.vals = NULL,
   sp.cov.scale = NULL,
   reps = 1,
-  GP.init.size = 1000,
+  GP.init.size = 28,
   seed = NULL,
-  logis.scale = 0.217622,
-  parallel = F,
+  sample.method = "direct",
   verbose = T
 )
 }
@@ -42,11 +41,19 @@ gen_fuels(
 
 \item{heterogeneity}{(0,Inf): How heterogeneous the fuel maps will be. Larger values result in more heterogeneity.}
 
-\item{heterogeneity.scale}{(0,Inf): How big of an effect should the heterogeneity have? Scaling factor.}
+\item{intensity.scale}{(0,Inf): Standard deviation of the intensity function.}
 
 \item{reps}{(integer): The number of fuel layouts to generate}
 
+\item{GP.init.size}{(integer): Number of grid cells in each direction for discrete representation of the intensity function.}
+
 \item{seed}{(integer): Optional random seed for reproducibility}
+
+\item{verbose}{(logical): Print output related to generated fuels}
+
+\item{intensity.mean}{(-Inf,Inf): Mean of the intensity function}
+
+\item{parallel}{(logical): Should the fuels be generated in parallel}
 }
 \description{
 Generate fuel layouts on a rectangular domain using a handful of parameters to a generative model.

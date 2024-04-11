@@ -10,8 +10,10 @@ get_prior_info(
   est_cov_obs = T,
   est_cov_samples = 25,
   est_cov_reps = 25,
-  est_rho_prior = list(prior = "gamma", params = c(1, 0.33)),
-  gen_parallel = F,
+  est_rho_prior = list(prior = "gamma", params = c(1, 10/fuel$dimX)),
+  hcauchy_scale = 0.1,
+  GP.init.size = 64,
+  sample.method = "direct",
   mets_parallel = T,
   make.cluster = F,
   seed = NULL
@@ -29,8 +31,6 @@ get_prior_info(
 \item{est_cov_reps}{number of fuel replicates to generate at each sample, only used if est_cov_obs=F}
 
 \item{est_rho_prior}{list containing string 'prior' denoting the prior distribution and vector 'params' containing the parameters of the distribution for the lengthscale. Currently only 'unif' and 'gamma' priors are supported.}
-
-\item{gen_parallel}{generate the fuels in parallel (can be faster for large domains with many fuel elements, but will be slower for small domains)}
 
 \item{mets_parallel}{compute metrics in parallel (almost always faster)}
 
