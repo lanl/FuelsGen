@@ -29,4 +29,5 @@ Imports:
     distances,
     LaplacesDemon,
     TDAstats,
-    matrixStats
+    matrixStats,
+    MHadaptive

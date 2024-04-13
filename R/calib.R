@@ -304,7 +304,7 @@ mets = function(dat, info, dimX, dimY)
   metrics = c()
   n = nrow(dat)
   if (n == 0){
-    return(rep(0,11))
+    return(rep(0,13))
   }
 
   #--- NCC ---#
@@ -824,11 +824,32 @@ mcmc = function(y_obs,fuel,prior,filename,
               'prior' = prior))
 }
 
+#' @title MCMC using adaptive metropolis implemented in MHadaptive package
+#'
+#' @description Addaptive MCMC as defined in Haario et al. 2001 - "An adaptive Metropolis algorithm"
+#' @param y_obs Metrics for observed data
+#' @param fuel Observed fuelsgen data object
+#' @param filename File where mcmc results should be saved. Also represents file that is loaded if load.theta=T
+#' @param n.samples total number of mcmc samples
+#' @param n.burn number of samples to burn and use for addapting proposal covariance
+#' @param adapt.par adaptive parameters for MHadaptive::MetroHastings
+#' @param prop.sigma Initial proposal covariance. Default is diagonal with 10% variance.
+#' @param gen_reps Number of realizations to generate at each parameter setting. Default of 25 has worked well over a range of problems balancing computation time with accuracy of expectation.
+#' @param avg How to compute the likelihood over realizations. 'llh' is an average likelihood over simulated realizations, and 'mets' computing a single likeklihood with metrics averaged over realizations.
+#' @param gen_parallel Generate simulated fuels in parallel. Generally not faster except for large domains.
+#' @param mets_parallel Generate metrics in parallel. Generally faster than sequential.
+#' @param make.cluster Should the parallel computing cluster be created inside the function
+#' @param verbose Print status updates from MCMC
+#' @details Returns predictions at X.pred.orig
+#' @export
+#' @examples
+#' # See examples folder for R markdown notebooks.
+#'
 mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
                             n.samples=10000,n.burn=1000,adapt.par = c(100,20,.5,.75),
                             prop.sigma = NULL,
-                            gen_reps = 1, avg = 'llh', gen_parallel = F, mets_parallel = T,
-                            load.theta=0,make.cluster=T,parallel=T,verbose=T)
+                            gen_reps = 25, avg = 'llh', 
+                            gen_parallel = F, mets_parallel = T, make.cluster=T, verbose=T)
 {
   llh_mh_adaptive = function(theta)
   {
@@ -885,7 +906,7 @@ mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
   }
   
   cores=min(gen_reps,parallel::detectCores())
-  if(make.cluster & parallel){
+  if(make.cluster & (gen_parallel | mets_parallel)){
     cl = parallel::makeCluster(cores)
     doParallel::registerDoParallel(cl)
   }
@@ -894,8 +915,9 @@ mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
     prop.sigma = .1*prior$theta_est*diag(p.t)
   }
   mcmc = Metro_Hastings_Stochastic(li_func = llh_mh_adaptive, pars = prior$theta_est, prop_sigma = prop.sigma,
-                             par_names = c('rho','mu','sigma','lambda'),
-                             iterations = n.samples, burn_in = n.burn, adapt_par = adapt.par, quiet = !verbose)
+                                   par_names = c('rho','mu','sigma','lambda'),
+                                   iterations = n.samples, burn_in = n.burn, adapt_par = adapt.par, quiet = !verbose)
+  mcmc$prior = prior
   if(!is.null(filename)){
     save(mcmc,file=filename)
   }
