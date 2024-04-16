@@ -51,9 +51,10 @@ gen_fuels = function(dimX, dimY,
 #' @param data: fuels data object returned from gen_fuels
 #' @export
 #'
-plot.fuelsgen = function(data){
+plot.fuelsgen = function(data,simple=F){
+  if(!simple){
     if(data$reps>0){
-        plot.dim = min(5,ceiling(sqrt(data$reps)))
+        plot.dim = min(10,ceiling(sqrt(data$reps)))
         plot.list = vector(mode='list',length=data$reps)
         hmin = 0; hmax = 0
 
@@ -121,6 +122,13 @@ plot.fuelsgen = function(data){
         #         ggplot2::labs(x='X (m)',y='Y (m)',fill='height (m)')
         return(myplot)
     }
+  } else{
+    plot.dim = min(10,ceiling(sqrt(data$reps)))
+    par(mfrow=c(plot.dim,plot.dim),mar=c(1,1,1,1))
+    for(i in 1:data$reps){
+      plot(data$dat[[i]]$X,data$dat[[i]]$Y)
+    }
+  }
 }
 
 #' @title Fix raster

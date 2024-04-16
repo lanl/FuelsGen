@@ -10,9 +10,9 @@ library(fuelsgen)
 # cranking up the variance, which is needed for high heterogeneity, tends to also
 # cause too much overlap in shrubs because the regions of high probability are clumpy
 nsim = 100
-tmp = rLGCP(mu=-2,
-            var=.1,
-            scale=2,model='gauss',
+tmp = rLGCP(mu=0,
+            var = .1,
+            scale=6,model='gauss',
             win = owin(c(0,20),c(0,20)),nsim=nsim)
 plot(tmp[1:12])
 n.sim = numeric(nsim)
@@ -22,19 +22,25 @@ for(i in 1:length(tmp)){
 hist(n.sim)
 summary(n.sim)
 
+mean(n.sim)
+var(n.sim)
+
 ################################################################################
 # generate data from the model
 
 dimX = 20
 dimY = 20
+reps = 1000
 set.seed(2)
 # Question: can we improve inference on rho by adding s2_rho to the list of calibration parameters
 fuels = fuelsgen::gen_fuels(dimX,dimX,
                             density = .1,radius = .75,sd_radius = .2,
-                            heterogeneity = 3,reps=10, heterogeneity.scale = 1,
+                            heterogeneity = 3,reps=reps, heterogeneity.scale = 1,
                             seed=1, GP.init.size = 32)
-plot(fuels)
-
+n.fg = numeric(reps)
+for(i in 1:reps){n.fg[i]=nrow(fuels$dat[[i]])}
+hist(n.fg)
+mean(n.fg); var(n.fg) # n is drawn from a poisson, so we get poisson uncertainty
 ################################################################################
 # calibration
 

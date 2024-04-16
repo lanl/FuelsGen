@@ -1,7 +1,9 @@
-.RData
-.DS_Store
-.pdf
-.csv
-.Rhistory
+*.RData
+*.DS_Store
+*.pdf
+*.csv
+*.Rhistory
+*.Rbuildignore
+*.Rproj.user
+*.tif
 
-.Rproj.user
