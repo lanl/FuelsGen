@@ -25,6 +25,7 @@ gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1,
   
   W = spatstat.geom::owin(c(0,dimX),c(0,dimY), mask=matrix(TRUE, GP.init.size,GP.init.size))
   gamma = spatstat.random::rGRFgauss(W = W, mu = 0, var = heterogeneity.scale, scale = rho,nsim = reps)
+  if(reps==1){gamma = list(gamma)}
   n_plus = rpois(reps, lambda * dimX * dimY)
   dat = vector(mode="list", length=reps)
   for(i in 1:reps){
