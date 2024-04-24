@@ -1,56 +1,92 @@
-llh = function(y, theta, dimX, dimY, Sigma_p, nu_p, gen_reps = 1, avg = 'mets', gen_parallel = F, mets_parallel = F, median = F)
+#' @title MCMC Calibration for FuelGen model
+#'
+#' @description Calibrate parameters to observed data using addaptive metropolis
+#' @param y_obs metrics for observed data
+#' @param fuelsgen object for observed data
+#' @param prior prior from get_prior_info()
+#' @export
+#'
+mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
+                            n.samples=10000,n.burn=1000,
+                            adapt.par = c(100,20,.5,.75),
+                            prop.sigma = .1^2*prior$theta_est*diag(length(prior$theta_est)), 
+                            GP.init.size = 32, I.transform = 'logistic',
+                            gen_reps = 25, avg = 'mets', gen_parallel = F, mets_parallel = T,
+                            load.theta=0,make.cluster=T,parallel=T,verbose=T)
 {
-  sim_fuels = gen_fuels(dimX, dimY,
-                 theta[4],
-                 theta[2], theta[3],
-                 height = NULL, sd_height = 0,
-                 theta[1], heterogeneity.scale = 1,
-                 sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL,
-                 reps=gen_reps, GP.init.size = 100, seed=NULL, logis.scale=.217622, verbose=F, parallel = gen_parallel)
-
-  metrics = get_mets(sim_fuels, y$info, mets_parallel)
-  
-  # inverse wishart conjugate prior - covariance matrices are multiplied by n-1 to account for
-  # the division by n-1 in the cov() function
-  Sigma_gen = cov(metrics$mets)
-  Sigma = LaplacesDemon::rinvwishart(nu_p + gen_reps, (nu_p-1)*Sigma_p + (gen_reps-1)*Sigma_gen)
-  Sinv = chol2inv(chol(Sigma))
-  ldetS = determinant(Sigma)$modulus
-  
-  if(avg == 'mets'){
-    # average over the metrics and compute the likelihood once
-    metrics = colMeans(metrics$mets)
-    llh = 0
-    for(i in 1:nrow(y$mets)){
-      # loop over replicate observations
-      llh = llh - 0.5 * (ldetS + ((y$mets[i,,drop=F] - metrics) %*% Sinv %*% t(y$mets[i,,drop=F] - metrics)))
+  llh_mh_adaptive = function(theta)
+  {
+    # if theta passed on log scale
+    # theta = exp(theta)
+    if(any(theta<prior$prior_params$lb) | any(theta>prior$prior_params$ub)){
+      return(-Inf)
     }
-  } else if(avg == 'llh'){
-    # product likelihood over observations and generations (double product)
-    llh = numeric(gen_reps)
-    for(j in 1:length(llh)){
-      # loop over generated metrics
-      llh[j] = 0
-      for(i in 1:nrow(y$mets)){
+    sim_fuels = gen_data(theta,fuel$dimX,fuel$dimY,1,NULL,NULL,NULL,gen_reps,GP.init.size,NULL,I.transform,.217622,F)
+    
+    metrics = get_mets(sim_fuels, y_obs$info, mets_parallel, make.cluster = F)
+    
+    # inverse wishart conjugate prior - covariance matrices are multiplied by n-1 to account for
+    # the division by n-1 in the cov() function
+    Sigma_gen = cov(metrics$mets)
+    S = MHadaptive::makePositiveDefinite((prior$nu-1)*prior$Sigma + (gen_reps-1)*Sigma_gen)
+    # if(!MHadaptive::isPositiveDefinite(S)){
+    #   S <- MHadaptive::makePositiveDefinite(S)
+    # }
+    Sigma = LaplacesDemon::rinvwishart(prior$nu + gen_reps, S)
+    Sinv = chol2inv(chol(Sigma))
+    ldetS = determinant(Sigma)$modulus
+    
+    if(avg == 'mets'){
+      # average over the metrics and compute the likelihood once
+      metrics = colMeans(metrics$mets)
+      llh = 0
+      for(i in 1:nrow(y_obs$mets)){
         # loop over replicate observations
-        llh[j] = llh[j] - 0.5 * (ldetS + ((y$mets[i,,drop=F] - metrics$mets[j,]) %*% Sinv %*% t(y$mets[i,,drop=F] - metrics$mets[j,])))
+        llh = llh - 0.5 * (ldetS + ((y_obs$mets[i,,drop=F] - metrics) %*% Sinv %*% t(y_obs$mets[i,,drop=F] - metrics)))
+      }
+    } else if(avg == 'llh'){
+      # product likelihood over observations and generations (double product)
+      llh = numeric(gen_reps)
+      for(j in 1:length(llh)){
+        # loop over generated metrics
+        llh[j] = 0
+        for(i in 1:nrow(y_obs$mets)){
+          # loop over replicate observations
+          llh[j] = llh[j] - 0.5 * (ldetS + ((y_obs$mets[i,,drop=F] - metrics$mets[j,]) %*% Sinv %*% t(y_obs$mets[i,,drop=F] - metrics$mets[j,])))
+        }
       }
     }
+    # returns = list(Sigma=Sigma)
+    # if(median){
+    #   returns$llh = median(llh)
+    # } else{
+    #   returns$llh = mean(llh)
+    # }
+    # return(returns)
+    return(mean(llh)+lprior(theta,prior$prior_params))#+sum(log(theta)))
   }
-  returns = list(Sigma=Sigma)
-  if(median){
-    returns$llh = median(llh)
-  } else{
-    returns$llh = mean(llh)
+  
+  cores=min(gen_reps,parallel::detectCores()-1)
+  if(make.cluster & parallel){
+    cl = parallel::makeCluster(cores)
+    doParallel::registerDoParallel(cl)
   }
-  return(returns)
+  mcmc = Metro_Hastings_Stochastic(li_func = llh_mh_adaptive, pars = prior$theta_est, prop_sigma = prop.sigma,
+                                   par_names = c('rho','mu','sigma','lambda'),
+                                   iterations = n.samples, burn_in = n.burn, adapt_par = adapt.par, quiet = !verbose)
+  mcmc$prior = prior
+  class(mcmc) = c('list','fuelsgen_mcmc')
+  if(!is.null(filename)){
+    save(mcmc,file=filename)
+  }
+  return(mcmc)
 }
 
 lprior = function(theta,params)
 {
   if(is.null(params$rho_shape)){
     # flat prior but limited domain
-    rho_prior = dunif(theta[1],0,params$rho_max)
+    rho_prior = dunif(theta[1],0,params$rho_max,log=T)
   } else{
     # gamma prior with q95 set to be approximately rho_max
     rho_prior = dgamma(theta[1],params$rho_shape,params$rho_rate,log=T)
@@ -273,6 +309,7 @@ get_mets = function(fuels, info=NULL, parallel = F, make.cluster = F)
       metrics = rbind(metrics,mets(fuels$dat[[i]], info, fuels$dimX, fuels$dimY))
     }
   }
+  colnames(metrics) = c(info$names,rep("",ncol(metrics)-length(info$names)))
   return(list(mets=metrics,info=info))
 }
 
@@ -304,7 +341,7 @@ mets = function(dat, info, dimX, dimY)
   metrics = c()
   n = nrow(dat)
   if (n == 0){
-    return(rep(0,11))
+    return(rep(0,length(info$names)))
   }
 
   #--- NCC ---#
@@ -508,8 +545,32 @@ mets = function(dat, info, dimX, dimY)
     metrics = c(metrics,nseg,ifelse(nseg>0,mean(segments),0),ifelse(nseg>1,var(segments),0),
                      nbreak,ifelse(nbreak>0,mean(breaks),0),ifelse(nbreak>1,var(breaks),0))
   }
+
+  # Summary statistics -r values need to be based on domain. Maybe just compute for default and grab a few points
+  if(info$Kinhom | info$pcf | info$Ginhom){
+    W = spatstat.geom::owin(c(0,dimX),c(0,dimY))
+    P = spatstat.geom::ppp(x = dat$X,y = dat$Y, window = W)
+    ppm = spatstat.model::ppm # this is a strange workaround i had to do for the mcmc function to find the ppm function, no idea why
+    trend = ppm(P ~ 1, interaction = spatstat.model::Poisson())
+    if(info$Kinhom | info$pcf){
+      Kin = spatstat.explore::Kinhom(P,window = W,lambda = rep(exp(trend$coef),nrow(dat)),r=c(0,1,3,5))
+    }
+    if(info$Kinhom){
+      metrics = c(metrics,Kin$border[2:4])
+    }
+    if(info$pcf){
+      Pcf = spatstat.explore::pcf.fv(Kin)
+      metrics = c(metrics,Pcf$pcf[2:4])
+    }
+    if(info$Ginhom){
+      G = spatstat.explore::Ginhom(P,lambda = rep(exp(trend$coef),nrow(dat)),r=c(0,.75,1.25,1.75))
+      metrics = c(metrics,G$bord[c(2,3,4)])
+    }
+  }
+  
   # include empirical estimates of parameters as metrics
-  metrics = c(metrics,2*n/dimX/dimY,mean(dat$r),ifelse(n==1,0,sd(dat$r)))
+  metrics = c(metrics,n/dimX/dimY,mean(dat$r),ifelse(n==1,0,sd(dat$r)))
+  
   return(metrics)
 }
 
@@ -555,7 +616,7 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
   lambda_est = mean(lambda_est)
   mu_est = mean(mu_est,na.rm=T) # there may be observed domains with 0 fuel elements
   sigma_est = mean(sigma_est,na.rm=T) # there may be observed domains with 0 fuel elements
-  rho_max = max(fuel$dimX,fuel$dimY)/3
+  rho_max = max(fuel$dimX,fuel$dimY)/2
   
   # gamma parameters s.t. q95 ~~ rho_max
   #rho_prior = "gamma"
@@ -613,10 +674,10 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
   }
   
   # set rho_est to prior mean
-  if(est_rho_prior$prior == 'gamma'){
-    rho_est = est_rho_prior$params[1]/est_rho_prior$params[2]
-  } else if(est_rho_prior$prior == 'unif'){
-    rho_est = mean(est_rho_prior$params)
+  if(rho_prior == 'gamma'){
+    rho_est = rho_shape/rho_rate
+  } else if(rho_prior == 'uniform'){
+    rho_est = rho_max/2
   }
   
   if(cluster.made)
@@ -667,8 +728,44 @@ get_prior_info = function(fuel,metrics,est_cov_obs=T,
 #' @details returns a list of indicators for each metric
 #' @export
 get_mets_info = function(ncc=T,nholes=T,grid.area=T,moran=F,geary=T,rook=F,
-                         queen=T,perim=F,transect=F,n.trans=0)
+                         queen=T,perim=F,transect=F,n.trans=0,Kinhom=F,pcf=F,Ginhom=F)
 {
+  names = c()
+  if(ncc){
+    names = c(names,'n cc')
+  }
+  if(nholes){
+    names = c(names,'n holes')
+  }
+  if(grid.area){
+    names = c(names,'total area','full cells','empty cells','area frac var')
+  }
+  if(moran | geary){
+    if(rook){
+      names = c(names,'Moran Geary r1','Moran Geary r2','Moran Geary r01','Moran Geary r02')
+    }
+    if(queen){
+      names = c(names,'Moran Geary q1','Moran Geary q2','Moran Geary q01','Moran Geary q02')
+    }
+  }
+  if(perim){
+    names = c(names,'perimeter')
+  }
+  if(transect){
+    names = c(names,'n segs','mean seg length','var seg length',
+              'n breaks','mean break length','var break length')
+  }
+  if(Kinhom){
+    names = c(names,'K1','K2','K3')
+  }
+  if(pcf){
+    names = c(names,'pcf1','pcf2','pcf3')
+  }
+  if(Ginhom){
+    names = c(names,'G1','G2','G3')
+  }
+  # include empirical estimates of parameters as metrics
+  names = c(names,'emp lambda','emp r','emp sd')
   return(list('ncc'=ncc,
               'nholes'=nholes,
               'grid.area'=grid.area,
@@ -678,224 +775,9 @@ get_mets_info = function(ncc=T,nholes=T,grid.area=T,moran=F,geary=T,rook=F,
               'queen'=queen,
               'perim'=perim,
               'transect'=transect,
-              'n.trans'=n.trans))
-}
-
-#' @title MCMC with joint proposal
-#'
-#' @description Addaptive MCMC as defined in Haario et al. 2001 - "An adaptive Metropolis algorithm"
-#' @param filename File where mcmc results should be saved. Also represents file that is loaded if load.theta=T
-#' @param n.samples total number of mcmc samples
-#' @param n.burn number of samples to burn and use for addapting proposal covariance
-#' @param update.every how often to update proposal covariance during burn in phase
-#' @param load.theta load and add to previous mcmc samples
-#' @param verbose frequency with which status updates are printed
-#' @details Returns predictions at X.pred.orig
-#' @export
-#' @examples
-#' # See examples folder for R markdown notebooks.
-#'
-mcmc = function(y_obs,fuel,prior,filename,
-                n.samples=10000,n.burn=1000,stop.update=1000,
-                gen_reps = 1, avg = 'llh', gen_parallel = F, mets_parallel = T,
-                update.every=1,save.every=1000,load.theta=0,make.cluster=T,parallel=T,verbose=0)
-{
-  cores=min(gen_reps,parallel::detectCores())
-  if(make.cluster & parallel){
-    cl = parallel::makeCluster(cores)
-    doParallel::registerDoParallel(cl)
-  }
-  dimX = fuel$dimX
-  dimY = fuel$dimY
-  
-  cat('save file:',filename,'\n')
-  cat('n.samples:',n.samples,'\n')
-  cat('n.burn:',n.burn,'\n')
-  cat('load.theta:',load.theta,'\n')
-  
-  p.t = 4
-  if(load.theta==0){
-    Sigma = vector(mode='list',length=n.samples)
-    theta = matrix(0,nrow=n.samples, ncol=p.t)
-    accept = numeric(n.samples)
-    theta.curr = prior$theta_est
-    theta.curr[1] = 3
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, prior$nu, gen_reps, avg, gen_parallel, mets_parallel)
-    ll$llh = ll$llh + lprior(theta.curr,prior$prior_params)
-    Sigma[[1]] = ll$Sigma
-    start = 1
-  } else{
-    cat('loading previous samples.\n')
-    load(filename)
-    start = nrow(theta) + 1
-    accept = c(accept,numeric(n.samples))
-    theta.curr = theta[nrow(theta),]
-    theta = rbind(theta,matrix(0,nrow=n.samples, ncol=p.t))
-    ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, prior$nu, gen_reps, avg, gen_parallel, mets_parallel)
-    ll$llh = ll$llh + lprior(theta.curr,prior$prior_params)
-    Sigma = append(Sigma,vector(mode = 'list', length=n.samples))
-    Sigma[[start]] = ll$Sigma
-  }
-  ll_prop = list()
-  s.d = 2.4^2/p.t
-  eps = sqrt(.Machine$double.eps)
-  prop.sd = .05*theta.curr # initial proposal sd is 5% of the data value
-  if(!load.theta){
-    prop.cov = diag(prop.sd^2)
-  } else{
-    prop.cov = cov(theta[1:(start-1),]) + diag(eps,p.t)
-  }
-  
-  cat('parameter bounds:\n')
-  cat('rho:',prior$prior_params$lb[1],prior$prior_params$ub[1],'\n')
-  cat('mu:',prior$prior_params$lb[2],prior$prior_params$ub[2],'\n')
-  cat('sigma:',prior$prior_params$lb[3],prior$prior_params$ub[3],'\n')
-  cat('lambda:',prior$prior_params$lb[4],prior$prior_params$ub[4],'\n')
-  cat('MCMC Start #--',format(Sys.time(), "%a %b %d %X"),'--#\n')
-  
-  for (i in start:(n.samples+start-1)){
-    if(verbose>0){
-      if(i %% verbose == 0){
-        cat('MCMC iteration',i,'#--',format(Sys.time(), "%a %b %d %X"),'--#\n')
-      }
-    }
-    prop = mvtnorm::rmvnorm(1,theta.curr,prop.cov)
-    if(any(prop<prior$prior_params$lb) | any(prop>prior$prior_params$ub)){
-      ll_prop$llh = -Inf
-    } else{
-      ll_prop = llh(y_obs, prop, dimX, dimY, prior$Sigma, prior$nu, gen_reps, avg, gen_parallel, mets_parallel)
-      ll_prop$llh = ll_prop$llh + lprior(prop,prior$prior_params)
-    }
-    # recomputing ll is necessary for mixing, just like in FlaGP. Otherwise the chain will stick.
-    if(i>start){
-      ll = llh(y_obs, theta.curr, dimX, dimY, prior$Sigma, prior$nu, gen_reps, avg, gen_parallel, mets_parallel) 
-      ll$llh = ll$llh + lprior(theta.curr,prior$prior_params)
-    }
-    
-    if (runif(1) < exp(ll_prop$llh - ll$llh)){
-      accept[i] = 1
-      theta.curr = prop
-      theta[i,] = prop
-      Sigma[[i]] = ll_prop$Sigma
-      ll = ll_prop
-    } else {
-      accept[i] = 0
-      theta[i,] = theta.curr # reject -> reset theta
-      Sigma[[i]] = ll$Sigma
-    }
-    
-    # for the first 100 iterations be greedy, updating the covariance matrix every time there is an accepted sample
-    # and use only accepted samples for the estimate. We specify sum(accept>2) as the estimate of the covariance matrix
-    # needs a few samples to work
-    if(update.every>0 & i<=100 & accept[i] & sum(accept)>1){
-      # greedy in the beginning, update any time there is an accepted sample
-      prop.cov = cov(theta[c(1,which(accept==1)),]) + diag(eps,p.t)
-    }
-    if(update.every>0 & i>100 & i<=stop.update & i%%update.every==0){
-      # if previous samples were passed to the function, use them for estimation
-      prop.cov = cov(theta[1:i,]) + diag(eps,p.t)
-    }
-    
-    if(i%%save.every==0){
-      theta.save = theta[1:i,]
-      Sigma.save = Sigma[1:i]
-      save(prop.cov,theta.save,Sigma.save,file=filename)
-    }
-  }
-  
-  cat('saving mcmc results to',filename,'\n')
-  if(start>1){
-    old.samples = 1:(start-1)
-  } else{
-    old.samples = c()
-  }
-  new.samples = (start+n.burn):(n.samples+start-1)
-  theta = theta[c(old.samples,new.samples),]
-  Sigma = Sigma[c(old.samples,new.samples)]
-  accept = accept[c(old.samples,new.samples)]
-  save(prop.cov,theta,Sigma,accept,file=filename)
-  if(make.cluster)
-    parallel::stopCluster(cl)
-  cat('done.')
-  return(list('theta' = theta,
-              'Sigma' = Sigma,
-              'prop.cov' = prop.cov,
-              'accept' = accept,
-              'y_obs' = y_obs,
-              'fuel' = fuel,
-              'prior' = prior))
-}
-
-mcmc_MH_adaptive = function(y_obs,fuel,prior,filename=NULL,
-                            n.samples=10000,n.burn=1000,adapt.par = c(100,20,.5,.75),
-                            prop.sigma = NULL, GP.init.size = 64,
-                            gen_reps = 1, avg = 'llh', gen_parallel = F, mets_parallel = T,
-                            load.theta=0,make.cluster=T,parallel=T,verbose=T)
-{
-  llh_mh_adaptive = function(theta)
-  {
-    # if theta passed on log scale
-    # theta = exp(theta)
-    if(any(theta<prior$prior_params$lb) | any(theta>prior$prior_params$ub)){
-      return(-Inf)
-    }
-    sim_fuels = fuelsgen:::gen_data(theta,fuel$dimX,fuel$dimY,1,NULL,NULL,NULL,gen_reps,GP.init.size,NULL,.217622,F)
-    
-    metrics = get_mets(sim_fuels, y_obs$info, mets_parallel)
-    
-    # inverse wishart conjugate prior - covariance matrices are multiplied by n-1 to account for
-    # the division by n-1 in the cov() function
-    Sigma_gen = cov(metrics$mets) + 1e-8*diag(ncol(metrics$mets))
-    Sigma = LaplacesDemon::rinvwishart(prior$nu + gen_reps, (prior$nu-1)*prior$Sigma + (gen_reps-1)*Sigma_gen)
-    Sinv = chol2inv(chol(Sigma))
-    ldetS = determinant(Sigma)$modulus
-    
-    if(avg == 'mets'){
-      # average over the metrics and compute the likelihood once
-      metrics = colMeans(metrics$mets)
-      llh = 0
-      for(i in 1:nrow(y_obs$mets)){
-        # loop over replicate observations
-        llh = llh - 0.5 * (ldetS + ((y_obs$mets[i,,drop=F] - metrics) %*% Sinv %*% t(y_obs$mets[i,,drop=F] - metrics)))
-      }
-    } else if(avg == 'llh'){
-      # product likelihood over observations and generations (double product)
-      llh = numeric(gen_reps)
-      for(j in 1:length(llh)){
-        # loop over generated metrics
-        llh[j] = 0
-        for(i in 1:nrow(y_obs$mets)){
-          # loop over replicate observations
-          llh[j] = llh[j] - 0.5 * (ldetS + ((y_obs$mets[i,,drop=F] - metrics$mets[j,]) %*% Sinv %*% t(y_obs$mets[i,,drop=F] - metrics$mets[j,])))
-        }
-      }
-    }
-    # returns = list(Sigma=Sigma)
-    # if(median){
-    #   returns$llh = median(llh)
-    # } else{
-    #   returns$llh = mean(llh)
-    # }
-    # return(returns)
-    return(mean(llh)+lprior(theta,prior$prior_params))#+sum(log(theta)))
-  }
-  
-  cores=min(gen_reps,parallel::detectCores())
-  if(make.cluster & parallel){
-    cl = parallel::makeCluster(cores)
-    doParallel::registerDoParallel(cl)
-  }
-  p.t = length(prior$theta_est)
-  if(is.null(prop.sigma)){
-    prop.sigma = .1*prior$theta_est*diag(p.t)
-  }
-  mcmc = Metro_Hastings_Stochastic(li_func = llh_mh_adaptive, pars = prior$theta_est, prop_sigma = prop.sigma,
-                             par_names = c('rho','mu','sigma','lambda'),
-                             iterations = n.samples, burn_in = n.burn, adapt_par = adapt.par, quiet = !verbose)
-  mcmc$prior = prior
-  class(mcmc) = c('list','fuelsgen_mcmc')
-  if(!is.null(filename)){
-    save(mcmc,file=filename)
-  }
-  return(mcmc)
+              'n.trans'=n.trans,
+              'Kinhom'=Kinhom,
+              'pcf'=pcf,
+              'Ginhom'=Ginhom,
+              'names'=names))
 }

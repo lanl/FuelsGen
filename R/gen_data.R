@@ -1,55 +1,21 @@
-# Given a matrix of xy locations and correlation parameters rho,sd
-# build the covariance matrix and return the cholesky and inverse
-# for use in drawing samples and making predictions.
-GP_fit = function(xy,rho)
-{
-  n = nrow(xy)
-  K = cov_mat(rho,xy) + diag(sqrt(.Machine$double.eps),n)
-  # can we make chol or inv faster using kronecker since K is evaluated on a grid?
-  cholK = chol(K)
-  invK = chol2inv(cholK)
-  return(list(cholK=cholK,invK=invK))
-}
-
-# Given the cholesky of the covariance matrix draw a random sample
-# from the mean zero with stderr 'sd'
-GP_sample = function(gp_fit,sd)
-{
-  sd^2*drop(rnorm(nrow(gp_fit$cholK)) %*% gp_fit$cholK)
-}
-
-# With covariance K defined on points xy predict from the GP
-# at xy.pred using training points y.train
-GP_predict = function(gp_fit,xy,rho,xy.pred,y.train)
-{
-  # cross-covariance of training locations and prediction locations
-  K.xy.pred = cov_mat(rho,xy.pred,xy)
-  # mean prediction
-  K.xy.pred%*%gp_fit$invK%*%y.train
-}
-
-# compute squared exponential covariance matrix at points x,y
-cov_mat = function(rho,x,y=NULL)
-{
-  if(is.null(y)){
-    d = as.matrix(distances::distances(x))
-  } else{
-    d = sqrt(plgp::distance(x,y))
-  }
-  exp(-d^2 / (2*rho^2))
+relu = function(x,m=0,bound=0){
+  x[x<=bound] = m
+  return(x)
 }
 
 # Generate 'reps' fuel maps with parameters theta over a domain of size [0,dimX]x[0,dimY]
 gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1, 
                     sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL, 
-                    reps = 1, GP.init.size=1000, seed = NULL, logis.scale=.217622, parallel=F)
+                    reps = 1, GP.init.size=1000, seed = NULL, 
+                    I.transform='logistic',
+                    logis.scale=.217622, parallel=F)
 {
   if(!is.null(seed))
     set.seed(seed)
-  lambda = theta[1]
-  rho = theta[2]
-  mu_r = theta[3]
-  sigma_r = theta[4]
+  lambda = theta[4]
+  rho = theta[1]
+  mu_r = theta[2]
+  sigma_r = theta[3]
   if(length(theta)>4){
     mu_h = theta[5]
     sigma_h = theta[6]
@@ -57,36 +23,34 @@ gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1,
     mu_h = NULL
   }
   
-  W = owin(c(0,dimX),c(0,dimY), mask=matrix(TRUE, GP.init.size,GP.init.size))
-  gamma = rGRFgauss(W = W, mu = 0, var = 1, scale = rho,nsim = reps)
-  
-  # grid.len = as.integer(sqrt(GP.init.size))
-
-  # X = seq(0,dimX,length.out=grid.len)
-  # Y = seq(0,dimY,length.out=grid.len)
-  # XY = expand.grid(X,Y)
-  
-  # gp_fit = GP_fit(XY,rho)
+  W = spatstat.geom::owin(c(0,dimX),c(0,dimY), mask=matrix(TRUE, GP.init.size,GP.init.size))
+  gamma = spatstat.random::rGRFgauss(W = W, mu = 0, var = heterogeneity.scale, scale = rho,nsim = reps)
   n_plus = rpois(reps, lambda * dimX * dimY)
-  dat <- vector(mode="list", length=reps)
+  dat = vector(mode="list", length=reps)
   for(i in 1:reps){
-    Eta = gamma[[i]]
-    Eta$v = plogis(Eta$v - mean(Eta$v),0,logis.scale)
+    if(I.transform=='logistic'){
+      gamma[[i]]$v = plogis(gamma[[i]]$v - mean(gamma[[i]]$v),0,logis.scale)
+    } else if(I.transform=='exp'){
+      gamma[[i]]$v = exp(gamma[[i]]$v - mean(gamma[[i]]$v))
+    } else if(I.transform=='relu'){
+      gamma[[i]]$v = relu(gamma[[i]]$v - mean(gamma[[i]]$v))
+    }
+    
     #### sample pixels directly ####
     nn = n_plus[i]
     if(!is.finite(nn))
       stop(paste("Unable to generate Poisson process with a mean of",
                  nn, "points"))
     if(nn>0){
-      dx <- Eta$xstep/2
-      dy <- Eta$ystep/2
-      df <- as.data.frame(Eta)
-      npix <- nrow(df)
-      lpix <- df$value
-      ii <- sample.int(npix, size=nn, replace=TRUE, prob=lpix)
-      xx <- df$x[ii] + runif(nn, -dx, dx)
-      yy <- df$y[ii] + runif(nn, -dy, dy)
-      dat[[i]] <- data.frame(X=xx,Y=yy)
+      dx = gamma[[i]]$xstep/2
+      dy = gamma[[i]]$ystep/2
+      df = as.data.frame(gamma[[i]])
+      npix = nrow(df)
+      lpix = df$value
+      ii = sample.int(npix, size=nn, replace=TRUE, prob=lpix)
+      xx = df$x[ii] + runif(nn, -dx, dx)
+      yy = df$y[ii] + runif(nn, -dy, dy)
+      dat[[i]] = data.frame(X=xx,Y=yy)
       dat[[i]]$r = truncdist::rtrunc(nn,'norm',a=0,b=Inf,mu_r,sigma_r)
       if(!is.null(mu_h)){
         dat[[i]]$h = truncdist::rtrunc(nn,'norm',a=0,b=Inf,mu_h,sigma_h)
@@ -158,7 +122,8 @@ gen_data = function(theta, dimX, dimY, heterogeneity.scale = 1,
              theta=theta,
              heterogeneity.scale = heterogeneity.scale, 
              sp.cov.locs = sp.cov.locs, sp.cov.vals = sp.cov.vals, sp.cov.scale = sp.cov.scale, 
-             GP.init.size=GP.init.size, seed = seed, logis.scale=logis.scale, parallel=parallel)
+             GP.init.size=GP.init.size, seed = seed, logis.scale=logis.scale, parallel=parallel,
+             gamma=gamma)
   class(ret) = c('list','fuelsgen')
   return(ret)
 }

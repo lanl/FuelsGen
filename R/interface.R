@@ -23,7 +23,9 @@ gen_fuels = function(dimX, dimY,
                      height = NULL, sd_height = 0, 
                      heterogeneity, heterogeneity.scale = 1,
                      sp.cov.locs = NULL, sp.cov.vals = NULL, sp.cov.scale = NULL,
-                     reps=1, GP.init.size = 1000, seed=NULL, logis.scale=.217622, parallel=F, verbose=T){
+                     reps=1, GP.init.size = 1000, seed=NULL, 
+                     I.transform='logistic',logis.scale=.217622, 
+                     parallel=F, verbose=T){
     if(verbose){
       cat('Generating',reps,'fuel maps.\n')
       if(is.null(seed))
@@ -38,10 +40,10 @@ gen_fuels = function(dimX, dimY,
       cat('  heterogeneity scale: ',heterogeneity.scale,'\n')
     }
     
-    theta = c(density, heterogeneity, radius, sd_radius)
+    theta = c(heterogeneity, radius, sd_radius, density)
     if(!is.null(height))
         theta = c(theta, height, sd_height)
-    data = gen_data(theta, dimX, dimY, heterogeneity.scale, sp.cov.locs, sp.cov.vals, sp.cov.scale, reps, GP.init.size, seed, logis.scale, parallel)
+    data = gen_data(theta, dimX, dimY, heterogeneity.scale, sp.cov.locs, sp.cov.vals, sp.cov.scale, reps, GP.init.size, seed, I.transform, logis.scale, parallel)
     return(data)
 }
 
@@ -131,12 +133,12 @@ plot.fuelsgen = function(data){
 #' @param type: 'trace' or 'density'. 'trace' gives trace plots for the parameters, while 'density' plots the KDE and prior over the prior range
 #' @export
 #'
-plot.fuelsgen_mcmc = function(mcmc,burn=0,type='trace'){
-  par(mfrow=c(2,3)) # 5 parameters in the calibration
+plot.fuelsgen_mcmc = function(mcmc,burn=0,type='trace',truth=NULL){
+  par(mfrow=c(2,2)) # 4 parameters in the calibration
   names = mcmc$par_names
   nsamp = nrow(mcmc$trace)
   lb = mcmc$prior$prior_params$lb
-  ub = calib$prior$prior_params$ub
+  ub = mcmc$prior$prior_params$ub
   # convert sigma to precision
   sig_id = which(names=='sigma')
   mcmc$trace[,sig_id] = 1/(mcmc$trace[,sig_id]^2)
@@ -146,13 +148,14 @@ plot.fuelsgen_mcmc = function(mcmc,burn=0,type='trace'){
     for(i in 1:length(names)){
       plot(mcmc$trace[(burn+1):nsamp,i],type='l',
            ylab=names[i],ylim=c(lb[i],ub[i]))
+      if(!is.null(truth)){abline(h=truth[i],lty=2,col='red')}
     }
   } else if(type=='density'){
     for(i in 1:length(names)){
-      plot(density(mcmc$trace[,i],
+      plot(density(mcmc$trace[(burn+1):nsamp,i],
                    from = lb[i],to = ub[i]),
            xlab=names[i],main='',ylab='density')
-      
+      if(!is.null(truth)){abline(v=truth[i],lty=2,col='red')}
       # abline(v=mcmc$prior$theta_est[i])
       switch(mcmc$prior$prior_params$dist[i],
              gamma = {

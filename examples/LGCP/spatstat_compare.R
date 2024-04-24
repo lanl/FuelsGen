@@ -10,17 +10,21 @@ library(fuelsgen)
 # cranking up the variance, which is needed for high heterogeneity, tends to also
 # cause too much overlap in shrubs because the regions of high probability are clumpy
 nsim = 100
-tmp = rLGCP(mu=-2,
-            var=.1,
-            scale=2,model='gauss',
+tmp = rLGCP(mu=-3,
+            var=1,
+            scale=3,model='gauss',
             win = owin(c(0,20),c(0,20)),nsim=nsim)
-plot(tmp[1:12])
+plot(tmp[1:25])
+par(mfrow=c(5,5),mar=c(2,2,2,2))
+for(i in 1:25){
+  plot(attr(tmp[[i]],"Lambda"),main='')
+}
 n.sim = numeric(nsim)
 for(i in 1:length(tmp)){
   n.sim[i] = tmp[[i]]$n
 }
 hist(n.sim)
-summary(n.sim)
+mean(n.sim);var(n.sim)
 
 ################################################################################
 # generate data from the model
@@ -31,10 +35,25 @@ set.seed(2)
 # Question: can we improve inference on rho by adding s2_rho to the list of calibration parameters
 fuels = fuelsgen::gen_fuels(dimX,dimX,
                             density = .1,radius = .75,sd_radius = .2,
-                            heterogeneity = 3,reps=10, heterogeneity.scale = 1,
-                            seed=1, GP.init.size = 32)
-plot(fuels)
+                            heterogeneity = 3,reps=25, heterogeneity.scale = 1,
+                            seed=1, GP.init.size = 32,I.transform='logistic')
+# plot(fuels)
+plot(fuels$gamma)
 
+fuels_exp = fuelsgen::gen_fuels(dimX,dimX,
+                            density = .1,radius = .75,sd_radius = .2,
+                            heterogeneity = 3,reps=25, heterogeneity.scale = 1,
+                            seed=3, GP.init.size = 32,I.transform='exp')
+# plot(fuels_exp)
+plot(fuels_exp$gamma)
+
+
+fuels_relu = fuelsgen::gen_fuels(dimX,dimX,
+                                density = .1,radius = .75,sd_radius = .2,
+                                heterogeneity = 3,reps=25, heterogeneity.scale = 1,
+                                seed=1, GP.init.size = 32,I.transform='relu')
+# plot(fuels_relu)
+plot(fuels_relu$gamma)
 ################################################################################
 # calibration
 

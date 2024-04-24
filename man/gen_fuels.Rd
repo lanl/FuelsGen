@@ -20,6 +20,7 @@ gen_fuels(
   reps = 1,
   GP.init.size = 1000,
   seed = NULL,
+  I.transform = "logistic",
   logis.scale = 0.217622,
   parallel = F,
   verbose = T

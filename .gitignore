@@ -1,8 +1,9 @@
 .Rproj.user
 .Rhistory
-.RData
+*.RData
 .Ruserdata
-.pdf
-.csv
-.tif
+*.pdf
+*.csv
+*.tif
 .DS_Store
+
