@@ -1,6 +1,6 @@
 # fuelsgen
 
-
+Generative point process model designed for heterogeneous placement of fuels to aid wildfire simulations. Bayesian model calibration facilitates tuning of the model to observed fuel maps.
 
 ## Getting started
 
